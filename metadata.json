@@ -1,0 +1,6 @@
+{
+  "name": "Youcan Dashboard",
+  "description": "لوحة تحكم احترافية لإدارة المبيعات والمشتريات والمصاريف متكاملة ومتوافقة مع الهواتف والأجهزة اللوحية",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
