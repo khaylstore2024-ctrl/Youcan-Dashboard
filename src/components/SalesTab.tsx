@@ -10,9 +10,19 @@ interface SalesTabProps {
   onAddSale: () => void;
   onEditSale: (order: Order) => void;
   onUpdateOrder: (rowNum: number, updates: any) => void;
+  salesPreset?: "all" | "delivery_requests" | "delivery_status" | "no_status";
+  setSalesPreset?: (preset: "all" | "delivery_requests" | "delivery_status" | "no_status") => void;
 }
 
-export const SalesTab: React.FC<SalesTabProps> = ({ sales, purchases, onAddSale, onEditSale, onUpdateOrder }) => {
+export const SalesTab: React.FC<SalesTabProps> = ({ 
+  sales, 
+  purchases, 
+  onAddSale, 
+  onEditSale, 
+  onUpdateOrder,
+  salesPreset = "all",
+  setSalesPreset
+}) => {
   const distinctCities = React.useMemo(() => {
     return Array.from(new Set(sales.map(s => s.City).filter(Boolean))) as string[];
   }, [sales]);
@@ -85,6 +95,27 @@ export const SalesTab: React.FC<SalesTabProps> = ({ sales, purchases, onAddSale,
 
   // Filter Sales
   const filteredSales = sales.filter(sale => {
+    // Sidebar Preset Filter
+    if (salesPreset === "delivery_requests") {
+      const isLivreurEmpty = !sale.Livreur || sale.Livreur.trim() === "";
+      const isDeliveryEmpty = !sale.delivery || sale.delivery.trim() === "";
+      if (sale.Condition !== "Confirmed" || !isLivreurEmpty || !isDeliveryEmpty) {
+        return false;
+      }
+    } else if (salesPreset === "delivery_status") {
+      const isLivreurFilled = !!sale.Livreur && sale.Livreur.trim() !== "";
+      if (sale.Condition !== "Confirmed" || !isLivreurFilled) {
+        return false;
+      }
+    } else if (salesPreset === "no_status") {
+      const isConditionEmpty = !sale.Condition || sale.Condition.trim() === "";
+      const isLivreurEmpty = !sale.Livreur || sale.Livreur.trim() === "";
+      const isDeliveryEmpty = !sale.delivery || sale.delivery.trim() === "";
+      if (!isConditionEmpty || !isLivreurEmpty || !isDeliveryEmpty) {
+        return false;
+      }
+    }
+
     // Search Query (id, name, phone)
     const matchesSearch = !searchQuery ? true : (
       (sale["Order ID"] || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -174,34 +205,7 @@ export const SalesTab: React.FC<SalesTabProps> = ({ sales, purchases, onAddSale,
 
   // Handle rapid inline update with statistics auto-recalculation (Section 4.1 sync)
   const handleInlineChange = (rowNum: number, field: string, value: any, currentSale: Order) => {
-    let fieldTitleAr = "الحل العام";
-    if (field === "Condition") fieldTitleAr = "نوع الإجراء الإداري التثبيتي (Condition)";
-    if (field === "Livreur") fieldTitleAr = "الموزع وشريك الشحن والتوصيل المكلف (Livreur)";
-    if (field === "delivery") fieldTitleAr = "حالة إتمام واستلام الشحنة الفعلي (Delivery)";
-
-    const oldValue = currentSale[field as keyof Order] || "غير محدد";
-    
-    // Custom label lookups for dropdown values
-    let oldValueLabel = oldValue;
-    let newValueLabel = value;
-
-    if (field === "Condition") {
-      oldValueLabel = CONDITIONS.find(c => c.value === oldValue)?.label || oldValue;
-      newValueLabel = CONDITIONS.find(c => c.value === value)?.label || value;
-    } else if (field === "delivery") {
-      oldValueLabel = DELIVERY_STATUSES.find(d => d.value === oldValue)?.label || "بانتظار الشحن";
-      newValueLabel = DELIVERY_STATUSES.find(d => d.value === value)?.label || "بانتظار الشحن";
-    }
-
-    setConfirmDialog({
-      isOpen: true,
-      title: "تأكيد تعديل معلومات الطلبية ⚠️",
-      message: `تنبيه فحص نزاهة المدخلات: هل تريد تغيير حقل "${fieldTitleAr}" للطلب ذي الرقم "${currentSale["Order ID"]}" من [ ${oldValueLabel} ] إلى [ ${newValueLabel} ]؟ قد يؤثر ذلك على الحسابات المالية وصافي الأرباح العام.`,
-      onConfirm: () => {
-        setConfirmDialog(p => ({ ...p, isOpen: false }));
-        executeInlineChange(rowNum, field, value, currentSale);
-      }
-    });
+    executeInlineChange(rowNum, field, value, currentSale);
   };
 
   const executeInlineChange = (rowNum: number, field: string, value: any, currentSale: Order) => {
@@ -260,6 +264,27 @@ export const SalesTab: React.FC<SalesTabProps> = ({ sales, purchases, onAddSale,
 
   return (
     <div className="space-y-6 text-right animate-fade-in" dir="rtl">
+      {/* Sidebar Filter Preset Status Banner */}
+      {salesPreset && salesPreset !== "all" && (
+        <div className="bg-[#111930] border border-blue-500/30 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-blue-400 font-semibold shadow-md shadow-blue-900/10">
+          <div className="flex items-center gap-2.5">
+            <span className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-ping"></span>
+            <span>تصفية نشطة من القائمة الجانبية:</span>
+            <span className="px-3 py-1 bg-blue-500/15 text-blue-300 rounded-lg border border-blue-500/25">
+              {salesPreset === "delivery_requests" && "طلبات التوصيل (Condition: Confirmed، الموزع فارغ، حالة التسليم فارغة)"}
+              {salesPreset === "delivery_status" && "حاله التسليم (Condition: Confirmed، الموزع مملوء)"}
+              {salesPreset === "no_status" && "بدون حاله (Condition فارغ، الموزع فارغ، حالة التسليم فارغة)"}
+            </span>
+          </div>
+          <button
+            onClick={() => setSalesPreset?.("all")}
+            className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition-colors font-bold shadow-sm"
+          >
+            إلغاء التصفية وعرض جميع الطلبات
+          </button>
+        </div>
+      )}
+
       {/* Search and Action Bar */}
       <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
         <div className="flex items-center gap-3 w-full md:w-auto">
@@ -495,10 +520,20 @@ export const SalesTab: React.FC<SalesTabProps> = ({ sales, purchases, onAddSale,
                         <select
                           value={sale.Condition || "Confirmed"}
                           onChange={e => handleInlineChange(rowNum, "Condition", e.target.value, sale)}
-                          className="bg-[#0d1426] border border-white/10 text-white rounded-lg px-2 py-1 text-[11px] font-sans focus:border-blue-500/50"
+                          className={`bg-[#0d1426] border rounded-lg px-2 py-1 text-[11px] font-sans focus:border-blue-500/50 ${
+                            sale.Condition === "Confirmed"
+                              ? "text-blue-400 border-blue-500/30"
+                              : "text-amber-400 border-amber-500/30"
+                          }`}
                         >
                           {CONDITIONS.map(cond => (
-                            <option key={cond.value} value={cond.value} className="bg-[#0f172a]">{cond.label}</option>
+                            <option 
+                              key={cond.value} 
+                              value={cond.value} 
+                              className={`bg-[#0f172a] ${cond.value === "Confirmed" ? "text-blue-400" : "text-amber-400"}`}
+                            >
+                              {cond.label}
+                            </option>
                           ))}
                         </select>
                       </td>
@@ -508,11 +543,21 @@ export const SalesTab: React.FC<SalesTabProps> = ({ sales, purchases, onAddSale,
                         <select
                           value={sale.Livreur || ""}
                           onChange={e => handleInlineChange(rowNum, "Livreur", e.target.value, sale)}
-                          className="bg-[#0d1426] border border-white/10 text-white rounded-lg px-2 py-1 text-[11px] font-sans focus:border-blue-500/50"
+                          className={`bg-[#0d1426] border rounded-lg px-2 py-1 text-[11px] font-sans focus:border-blue-500/50 ${
+                            sale.Livreur
+                              ? "text-blue-400 border-blue-500/30"
+                              : "text-amber-400 border-amber-500/30"
+                          }`}
                         >
-                          <option value="" className="bg-[#0f172a] text-gray-500"> </option>
+                          <option value="" className="bg-[#0f172a] text-amber-400">بدون موزع</option>
                           {LIVREURS.map(liv => (
-                            <option key={liv} value={liv} className="bg-[#0f172a]">{liv}</option>
+                            <option 
+                              key={liv} 
+                              value={liv} 
+                              className="bg-[#0f172a] text-blue-400"
+                            >
+                              {liv}
+                            </option>
                           ))}
                         </select>
                       </td>
@@ -522,17 +567,19 @@ export const SalesTab: React.FC<SalesTabProps> = ({ sales, purchases, onAddSale,
                         <select
                           value={sale.delivery || ""}
                           onChange={e => handleInlineChange(rowNum, "delivery", e.target.value, sale)}
-                          className={`border rounded-lg px-2 py-1 text-[11px] font-medium font-sans focus:outline-none ${
-                            !sale.delivery 
-                              ? "bg-gray-900/30 text-gray-400 border-white/10"
-                              : sale.delivery === "Delivered"
-                              ? "bg-emerald-950/40 text-emerald-400 border-emerald-500/30"
-                              : "bg-red-950/40 text-rose-400 border-red-500/30"
+                          className={`border rounded-lg px-2 py-1 text-[11px] font-medium font-sans focus:outline-none bg-[#0d1426] ${
+                            sale.delivery === "Delivered"
+                              ? "text-blue-400 border-blue-500/30"
+                              : "text-amber-400 border-amber-500/30"
                           }`}
                         >
-                          <option value="" className="bg-[#0d1426] text-gray-400 italic">بانتظار الشحن</option>
+                          <option value="" className="bg-[#0d1426] text-amber-400 italic">بانتظار الشحن</option>
                           {DELIVERY_STATUSES.map(stat => (
-                            <option key={stat.value} value={stat.value} className="bg-[#0d1426] text-white">
+                            <option 
+                              key={stat.value} 
+                              value={stat.value} 
+                              className={`bg-[#0d1426] ${stat.value === "Delivered" ? "text-blue-400" : "text-amber-400"}`}
+                            >
                               {stat.label}
                             </option>
                           ))}

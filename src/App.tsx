@@ -42,7 +42,10 @@ import {
   AlertTriangle, 
   ArrowUpRight, 
   TrendingUp, 
-  RefreshCw 
+  RefreshCw,
+  Truck,
+  ClipboardCheck,
+  FileQuestion
 } from "lucide-react";
 
 export default function App() {
@@ -53,7 +56,10 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"sales" | "purchases" | "payments" | "expenses" | "reports" | "settings">("sales");
 
   // Sidebar collapsed state
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
+
+  // Quick preset filter for SalesTab
+  const [salesPreset, setSalesPreset] = useState<"all" | "delivery_requests" | "delivery_status" | "no_status">("all");
 
   // Database State
   const [data, setData] = useState<AppData>({
@@ -112,6 +118,7 @@ export default function App() {
         pullHeaders["Authorization"] = `Bearer ${token}`;
       }
       
+      let pulledSuccessfully = false;
       try {
         const pullRes = await fetch("/api/google-sheets/sync-pull", {
           method: "POST",
@@ -120,6 +127,7 @@ export default function App() {
         const pullData = await pullRes.json();
         if (pullData.success) {
           console.log("Successfully auto-pulled live Google Sheets updates on load");
+          pulledSuccessfully = true;
         }
       } catch (pullErr) {
         console.warn("Auto-pull live updates skipped or unconfigured:", pullErr);
@@ -149,7 +157,12 @@ export default function App() {
           payments: paymentsRes.rows || [],
           expenses: expensesRes.rows || []
         });
-        showToast("تم تحديث ومزامنة البيانات مع Google Sheets بنجاح!", "success");
+        
+        if (pulledSuccessfully) {
+          showToast("تم تحديث ومزامنة البيانات مع Google Sheets بنجاح!", "success");
+        } else {
+          showToast("تم تحميل البيانات من قاعدة البيانات المحلية بنجاح.", "info");
+        }
       } else {
         showToast("حدث خطأ جزئى أثناء مزامنة البيانات من السيرفر.", "error");
       }
@@ -202,21 +215,7 @@ export default function App() {
 
   // CRUD Handler - Add/Edit Sale
   const handleSaveSale = async (values: any) => {
-    const isEdit = !!editingSale;
-    if (isEdit) {
-      setConfirmDialog({
-        isOpen: true,
-        title: "تأكيد تعديل طلب حساس ⚠️",
-        message: `أنت على وشك حفظ تعديلات حساسة ومصيرية على الطلب رقم "${values["Order ID"]}". هل تود المتابعة وتحديث الحسابات المرتبطة به؟`,
-        type: "warning",
-        onConfirm: async () => {
-          setConfirmDialog(p => ({ ...p, isOpen: false }));
-          await executeSaveSale(values);
-        }
-      });
-    } else {
-      await executeSaveSale(values);
-    }
+    await executeSaveSale(values);
   };
 
   const executeSaveSale = async (values: any) => {
@@ -290,21 +289,7 @@ export default function App() {
 
   // CRUD Handler - Add/Edit Expense
   const handleSaveExpense = async (values: any) => {
-    const isEdit = !!editingExpense;
-    if (isEdit) {
-      setConfirmDialog({
-        isOpen: true,
-        title: "تأكيد تعديل مصروف حساس ⚠️",
-        message: `هل أنت متأكد من حفظ التعديلات الجديدة على مستند المصاريف بقيمة "${values.Prix} DH"؟ سيؤثر هذا التعديل على صافي الأرباح العام للمشروع.`,
-        type: "warning",
-        onConfirm: async () => {
-          setConfirmDialog(p => ({ ...p, isOpen: false }));
-          await executeSaveExpense(values);
-        }
-      });
-    } else {
-      await executeSaveExpense(values);
-    }
+    await executeSaveExpense(values);
   };
 
   const executeSaveExpense = async (values: any) => {
@@ -520,12 +505,15 @@ export default function App() {
               </div>
 
               {/* Navigation Options */}
-              <nav className={`p-4 space-y-2 ${isSidebarCollapsed ? "px-2 text-center" : "text-right"}`}>
+              <nav className={`p-4 space-y-2 ${isSidebarCollapsed ? "px-2 text-center" : "text-border"}`} dir="rtl">
                 <button
-                  onClick={() => setActiveTab("sales")}
+                  onClick={() => {
+                    setActiveTab("sales");
+                    setSalesPreset("all");
+                  }}
                   title="المبيعات (Youcan Orders)"
                   className={`w-full flex items-center ${isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-3"} p-3 text-xs font-bold font-sans rounded-xl border transition-all ${
-                    activeTab === "sales"
+                    activeTab === "sales" && salesPreset === "all"
                       ? "bg-blue-600/10 text-blue-400 border-blue-500/15"
                       : "text-gray-400 border-transparent hover:bg-white/5"
                   }`}
@@ -533,6 +521,60 @@ export default function App() {
                   <LayoutGrid className="w-5 h-5 shrink-0" />
                   {!isSidebarCollapsed && <span className="truncate">المبيعات (Youcan Orders)</span>}
                 </button>
+
+                {/* Quick Preset Buttons (Filters) */}
+                <div className="space-y-1 my-1.5 pr-2 border-r border-white/5">
+                  {/* Button 1: طلبات التوصيل */}
+                  <button
+                    onClick={() => {
+                      setActiveTab("sales");
+                      setSalesPreset("delivery_requests");
+                    }}
+                    title="طلبات التوصيل"
+                    className={`w-full flex items-center ${isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-3"} py-2 px-2.5 text-[11px] font-bold font-sans rounded-lg border transition-all ${
+                      activeTab === "sales" && salesPreset === "delivery_requests"
+                        ? "bg-amber-500/10 text-amber-400 border-amber-500/25"
+                        : "text-gray-400 border-transparent hover:bg-white/5"
+                    }`}
+                  >
+                    <Truck className="w-4 h-4 shrink-0 text-amber-500" />
+                    {!isSidebarCollapsed && <span className="truncate">طلبات التوصيل</span>}
+                  </button>
+
+                  {/* Button 2: حاله التسليم */}
+                  <button
+                    onClick={() => {
+                      setActiveTab("sales");
+                      setSalesPreset("delivery_status");
+                    }}
+                    title="حاله التسليم"
+                    className={`w-full flex items-center ${isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-3"} py-2 px-2.5 text-[11px] font-bold font-sans rounded-lg border transition-all ${
+                      activeTab === "sales" && salesPreset === "delivery_status"
+                        ? "bg-blue-500/10 text-blue-400 border-blue-500/25"
+                        : "text-gray-400 border-transparent hover:bg-white/5"
+                    }`}
+                  >
+                    <ClipboardCheck className="w-4 h-4 shrink-0 text-blue-400" />
+                    {!isSidebarCollapsed && <span className="truncate">حاله التسليم</span>}
+                  </button>
+
+                  {/* Button 3: بدون حاله */}
+                  <button
+                    onClick={() => {
+                      setActiveTab("sales");
+                      setSalesPreset("no_status");
+                    }}
+                    title="بدون حاله"
+                    className={`w-full flex items-center ${isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-3"} py-2 px-2.5 text-[11px] font-bold font-sans rounded-lg border transition-all ${
+                      activeTab === "sales" && salesPreset === "no_status"
+                        ? "bg-purple-500/10 text-purple-400 border-purple-500/25"
+                        : "text-gray-400 border-transparent hover:bg-white/5"
+                    }`}
+                  >
+                    <FileQuestion className="w-4 h-4 shrink-0 text-purple-400" />
+                    {!isSidebarCollapsed && <span className="truncate">بدون حاله</span>}
+                  </button>
+                </div>
 
                 <button
                   onClick={() => setActiveTab("purchases")}
@@ -699,6 +741,8 @@ export default function App() {
                   onAddSale={() => setIsAddSaleOpen(true)}
                   onEditSale={(sale) => setEditingSale(sale)}
                   onUpdateOrder={handleInlineStatusUpdate}
+                  salesPreset={salesPreset}
+                  setSalesPreset={setSalesPreset}
                 />
               )}
 

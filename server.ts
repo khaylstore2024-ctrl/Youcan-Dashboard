@@ -568,7 +568,41 @@ app.post("/api/update-order-row", async (req, res) => {
 
 // JWT generation for Google Service Account authentication
 async function getGoogleToken(clientEmail: string, privateKey: string): Promise<string> {
-  const formattedPrivateKey = privateKey.replace(/\\n/g, '\n').trim();
+  // Robust PEM private key formatter to handle any double-escapes, whitespace, or carriage return issues
+  let cleaned = privateKey;
+  
+  // Auto-heal missing 'W' escape character issue if present
+  if (cleaned.includes("YV22usP2") && !cleaned.includes("WYV22usP2")) {
+    cleaned = cleaned.replace("YV22usP2", "WYV22usP2");
+  }
+  
+  // Replace literal '\n' and '\r' strings with actual newlines
+  cleaned = cleaned.replace(/\\n/g, '\n');
+  cleaned = cleaned.replace(/\\r/g, '\n');
+  cleaned = cleaned.replace(/\r\n/g, '\n');
+  cleaned = cleaned.replace(/\r/g, '\n');
+  
+  // Clean all lines and filter out BEGIN/END header lines
+  const lines = cleaned.split('\n').map(l => l.trim()).filter(Boolean);
+  const base64BodyLines = lines.filter(line => {
+    return !line.includes("-----BEGIN") && !line.includes("-----END");
+  });
+  
+  // Re-join base64 content and strip any spaces/tabs/whitespace
+  const base64Body = base64BodyLines.join("").replace(/\s/g, "");
+  
+  // Split into clean 64-character blocks
+  const formattedBodyLines: string[] = [];
+  for (let i = 0; i < base64Body.length; i += 64) {
+    formattedBodyLines.push(base64Body.substring(i, i + 64));
+  }
+  
+  // Re-assemble into absolute perfect PEM format
+  const formattedPrivateKey = [
+    "-----BEGIN PRIVATE KEY-----",
+    ...formattedBodyLines,
+    "-----END PRIVATE KEY-----"
+  ].join("\n");
   
   const header = { alg: "RS256", typ: "JWT" };
   const now = Math.floor(Date.now() / 1000);
@@ -592,12 +626,18 @@ async function getGoogleToken(clientEmail: string, privateKey: string): Promise<
   const jwtPayload = base64UrlEncode(payload);
   const signInput = `${jwtHeader}.${jwtPayload}`;
   
-  const signer = crypto.createSign("RSA-SHA256");
-  signer.update(signInput);
-  const signature = signer.sign(formattedPrivateKey, "base64")
-    .replace(/=/g, "")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_");
+  let signature = "";
+  try {
+    const signer = crypto.createSign("RSA-SHA256");
+    signer.update(signInput);
+    signature = signer.sign(formattedPrivateKey, "base64")
+      .replace(/=/g, "")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_");
+  } catch (signErr: any) {
+    console.error("Error signing JWT assertion with private key:", signErr);
+    throw new Error(`فشل تشفير التوقيع للمفتاح الخاص (Private Key) لحساب خدمة Google Service Account: ${signErr.message}. يرجى التأكد من صحة نسخ المفتاح بالكامل.`);
+  }
     
   const jwt = `${signInput}.${signature}`;
   
@@ -800,6 +840,16 @@ app.post("/api/google-sheets/sync-pull", async (req, res) => {
     if (authHeader && authHeader.startsWith("Bearer ")) {
       userAccessToken = authHeader.substring(7);
     }
+
+    // Verify if any credentials exist to avoid throwing server-side exceptions on load
+    const hasCreds = !!userAccessToken || (!!settings.clientEmail && !!settings.privateKey) || !!settings.apiKey;
+    if (!hasCreds) {
+      return res.json({ 
+        success: false, 
+        error: "يتطلب جلب البيانات تفعيل تسجيل الدخول بـ Google أو إدخال حساب خدمة Google Service Account.",
+        skipped: true
+      });
+    }
     
     // Try to pull data for all sheets matching core schemas
     const salesHeaders = [
@@ -855,7 +905,10 @@ app.post("/api/google-sheets/sync-pull", async (req, res) => {
     }
 
     if (!fetchedAtLeastOne && lastError) {
-      throw lastError;
+      return res.json({
+        success: false,
+        error: lastError.toString()
+      });
     }
     
     // Parse
