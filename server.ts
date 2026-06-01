@@ -1,19 +1,15 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { createServer as createViteServer } from "vite";
-import { fileURLToPath } from "url";
 import crypto from "crypto";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = 3000;
 
 // On Vercel, use /tmp directory for DB writes to avoid Read-Only Filesystem error
 const isVercel = !!process.env.VERCEL;
-let DB_FILE = path.join(__dirname, "data", "db.json");
+const rootDir = process.cwd();
+let DB_FILE = path.join(rootDir, "data", "db.json");
 
 if (isVercel) {
   const tmpDir = "/tmp/data";
@@ -22,7 +18,7 @@ if (isVercel) {
   }
   const tmpDbFile = path.join(tmpDir, "db.json");
   if (!fs.existsSync(tmpDbFile)) {
-    const srcDb = path.join(__dirname, "data", "db.json");
+    const srcDb = path.join(rootDir, "data", "db.json");
     if (fs.existsSync(srcDb)) {
       fs.copyFileSync(srcDb, tmpDbFile);
     }
@@ -1054,6 +1050,7 @@ app.post("/api/google-sheets/sync-push", async (req, res) => {
 // Setup Vite & static serving
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
