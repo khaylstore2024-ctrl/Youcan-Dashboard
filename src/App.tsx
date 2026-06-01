@@ -22,6 +22,7 @@ import { SettingsTab } from "./components/SettingsTab";
 import { MobileView } from "./components/MobileView";
 import { SaleAddModal, PurchaseAddModal, GenericModal } from "./components/Modals";
 import { ConfirmationDialog } from "./components/ConfirmationDialog";
+import { LoginPage } from "./components/LoginPage";
 
 import { 
   ChevronLeft,
@@ -45,10 +46,15 @@ import {
   RefreshCw,
   Truck,
   ClipboardCheck,
-  FileQuestion
+  FileQuestion,
+  LogOut
 } from "lucide-react";
 
 export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem("is_app_authenticated") === "true";
+  });
+
   // Device View Simulator mode: "desktop" or "mobile"
   const [deviceMode, setDeviceMode] = useState<"desktop" | "mobile">("desktop");
   
@@ -406,6 +412,17 @@ export default function App() {
     };
   }, [data]);
 
+  if (!isAuthenticated) {
+    return (
+      <LoginPage 
+        onLogin={() => {
+          localStorage.setItem("is_app_authenticated", "true");
+          setIsAuthenticated(true);
+        }} 
+      />
+    );
+  }
+
   return (
     <div className="bg-[#070a13] text-[#f3f4f6] min-h-screen flex flex-col font-sans select-none overflow-x-hidden antialiased pb-12" dir="rtl">
       
@@ -443,14 +460,27 @@ export default function App() {
           </button>
         </div>
 
-        <button 
-          onClick={syncDatabase} 
-          disabled={isLoading}
-          className="p-1 px-3 bg-white/5 rounded-lg text-[11px] hover:bg-white/10 text-gray-300 font-semibold flex items-center gap-1 border border-white/5 transition-colors font-sans"
-        >
-          <RefreshCw className={`w-3 h-3 ${isLoading ? "animate-spin" : ""}`} />
-          <span>مزامنة فوري</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={syncDatabase} 
+            disabled={isLoading}
+            className="p-1 px-3 bg-white/5 rounded-lg text-[11px] hover:bg-white/10 text-gray-300 font-semibold flex items-center gap-1 border border-white/5 transition-colors font-sans cursor-pointer"
+          >
+            <RefreshCw className={`w-3 h-3 ${isLoading ? "animate-spin" : ""}`} />
+            <span>مزامنة فوري</span>
+          </button>
+
+          <button 
+            onClick={() => {
+              localStorage.removeItem("is_app_authenticated");
+              setIsAuthenticated(false);
+            }}
+            className="p-1 px-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-lg text-[11px] font-semibold flex items-center gap-1 border border-rose-500/20 transition-colors font-sans cursor-pointer"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>خروج</span>
+          </button>
+        </div>
       </div>
 
       {/* 2. DEVICE CHANNELLING VIEW */}
