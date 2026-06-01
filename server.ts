@@ -6,24 +6,39 @@ import crypto from "crypto";
 const app = express();
 const PORT = 3000;
 
-// On Vercel, use /tmp directory for DB writes to avoid Read-Only Filesystem error
+// Determine if we are running in a serverless environment (either Vercel or any other cloud serverless engine)
+const isServerless = !!(global as any).__is_serverless_handler || !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.NETLIFY;
 const isVercel = !!process.env.VERCEL;
 const rootDir = process.cwd();
 let DB_FILE = path.join(rootDir, "data", "db.json");
 
-if (isVercel) {
+// In serverless environments, or if /data directory is not writable, copy to/use writable /tmp/db.json
+const useTmpDb = isServerless || !fs.existsSync(path.join(rootDir, "data"));
+
+if (useTmpDb) {
   const tmpDbFile = "/tmp/db.json";
   if (!fs.existsSync(tmpDbFile)) {
-    const srcDb = path.join(rootDir, "data", "db.json");
-    if (fs.existsSync(srcDb)) {
-      try {
-        fs.copyFileSync(srcDb, tmpDbFile);
-      } catch (err) {
-        console.error("Failed to copy db.json to /tmp/db.json:", err);
+    const possiblePaths = [
+      path.join(rootDir, "data", "db.json"),
+      path.join(rootDir, "db.json"),
+      path.join(rootDir, "..", "data", "db.json"),
+    ];
+    let copied = false;
+    for (const srcDb of possiblePaths) {
+      if (fs.existsSync(srcDb)) {
+        try {
+          fs.copyFileSync(srcDb, tmpDbFile);
+          console.log(`Copied database successfully from ${srcDb} to ${tmpDbFile}`);
+          copied = true;
+          break;
+        } catch (err) {
+          console.error(`Failed to copy db.json from ${srcDb} to /tmp/db.json:`, err);
+        }
       }
     }
   }
   DB_FILE = tmpDbFile;
+  console.log(`Database file path initialized to writable location: ${DB_FILE}`);
 }
 
 app.use(express.json());
@@ -1082,7 +1097,7 @@ async function startServer() {
   });
 }
 
-if (!isVercel) {
+if (!isServerless) {
   startServer();
 }
 
