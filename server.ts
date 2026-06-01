@@ -10,7 +10,25 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = 3000;
-const DB_FILE = path.join(__dirname, "data", "db.json");
+
+// On Vercel, use /tmp directory for DB writes to avoid Read-Only Filesystem error
+const isVercel = !!process.env.VERCEL;
+let DB_FILE = path.join(__dirname, "data", "db.json");
+
+if (isVercel) {
+  const tmpDir = "/tmp/data";
+  if (!fs.existsSync(tmpDir)) {
+    fs.mkdirSync(tmpDir, { recursive: true });
+  }
+  const tmpDbFile = path.join(tmpDir, "db.json");
+  if (!fs.existsSync(tmpDbFile)) {
+    const srcDb = path.join(__dirname, "data", "db.json");
+    if (fs.existsSync(srcDb)) {
+      fs.copyFileSync(srcDb, tmpDbFile);
+    }
+  }
+  DB_FILE = tmpDbFile;
+}
 
 app.use(express.json());
 
@@ -1054,4 +1072,8 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!isVercel) {
+  startServer();
+}
+
+export default app;
