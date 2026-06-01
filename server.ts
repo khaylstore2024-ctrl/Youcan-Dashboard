@@ -12,15 +12,15 @@ const rootDir = process.cwd();
 let DB_FILE = path.join(rootDir, "data", "db.json");
 
 if (isVercel) {
-  const tmpDir = "/tmp/data";
-  if (!fs.existsSync(tmpDir)) {
-    fs.mkdirSync(tmpDir, { recursive: true });
-  }
-  const tmpDbFile = path.join(tmpDir, "db.json");
+  const tmpDbFile = "/tmp/db.json";
   if (!fs.existsSync(tmpDbFile)) {
     const srcDb = path.join(rootDir, "data", "db.json");
     if (fs.existsSync(srcDb)) {
-      fs.copyFileSync(srcDb, tmpDbFile);
+      try {
+        fs.copyFileSync(srcDb, tmpDbFile);
+      } catch (err) {
+        console.error("Failed to copy db.json to /tmp/db.json:", err);
+      }
     }
   }
   DB_FILE = tmpDbFile;
@@ -241,8 +241,6 @@ function ensureDbExists() {
   }
 }
 
-ensureDbExists();
-
 function readDb() {
   ensureDbExists();
   const db = JSON.parse(fs.readFileSync(DB_FILE, "utf8"));
@@ -323,39 +321,50 @@ function normalizeHeader(h: any): string {
 
 // Get Sheet Data Endpoint
 app.get("/api/get-sheet", (req, res) => {
-  const sheetName = req.query.sheetName as string || "Youcan-Orders";
-  const db = readDb();
-  
-  let targetArray: any[] = [];
-  let headers: string[] = [];
-  
-  if (sheetName === "Youcan-Orders") {
-    targetArray = db.sales;
-    headers = [
-      "Order ID", "Order date", "Full name", "Phone", "City", "Region", 
-      "Product name", "Product URL", "Variant price", "Total quantity", 
-      "Total price", "Condition", "Livreur", "delivery", "prix d'achat", 
-      "Frais livraison", "Bénéfice", "Fournisseur", "Fourni price", "WHATSAPP"
-    ];
-  } else if (sheetName === "Achat") {
-    targetArray = db.purchases;
-    headers = ["ID", "date", "nombre", "Produit", "Code", "Prix Unit", "total", "Fournisseur", "Prix de vente"];
-  } else if (sheetName === "Payments") {
-    targetArray = db.payments;
-    headers = ["ID", "date", "Payment", "Fournisseur"];
-  } else if (sheetName === "Expenses") {
-    targetArray = db.expenses;
-    headers = ["ID", "date", "Prix", "Taper"];
-  } else {
-    return res.status(400).json({ success: false, error: `Sheet "${sheetName}" not found.` });
+  try {
+    const sheetName = req.query.sheetName as string || "Youcan-Orders";
+    const db = readDb();
+    
+    let targetArray: any[] = [];
+    let headers: string[] = [];
+    
+    if (sheetName === "Youcan-Orders") {
+      targetArray = db.sales || [];
+      headers = [
+        "Order ID", "Order date", "Full name", "Phone", "City", "Region", 
+        "Product name", "Product URL", "Variant price", "Total quantity", 
+        "Total price", "Condition", "Livreur", "delivery", "prix d'achat", 
+        "Frais livraison", "Bénéfice", "Fournisseur", "Fourni price", "WHATSAPP"
+      ];
+    } else if (sheetName === "Achat") {
+      targetArray = db.purchases || [];
+      headers = ["ID", "date", "nombre", "Produit", "Code", "Prix Unit", "total", "Fournisseur", "Prix de vente"];
+    } else if (sheetName === "Payments") {
+      targetArray = db.payments || [];
+      headers = ["ID", "date", "Payment", "Fournisseur"];
+    } else if (sheetName === "Expenses") {
+      targetArray = db.expenses || [];
+      headers = ["ID", "date", "Prix", "Taper"];
+    } else {
+      return res.status(400).json({ success: false, error: `Sheet "${sheetName}" not found.` });
+    }
+    
+    res.json({
+      success: true,
+      sheetName: sheetName,
+      headers: headers.map(normalizeHeader),
+      rows: targetArray
+    });
+  } catch (err: any) {
+    console.error("Error in get-sheet:", err);
+    res.status(500).json({ 
+      success: false, 
+      error: err.message || "Internal Server Error", 
+      stack: err.stack,
+      dbFile: DB_FILE,
+      isVercel: isVercel
+    });
   }
-  
-  res.json({
-    success: true,
-    sheetName: sheetName,
-    headers: headers.map(normalizeHeader),
-    rows: targetArray
-  });
 });
 
 // Save Generic Row Endpoint
