@@ -19,7 +19,8 @@ export interface Order {
   "Bénéfice": number;
   "Fournisseur": string;
   "Fourni price": number;
-  "WHATSAPP": string;
+  "WhatsApp Sent"?: string;
+  "WhatsApp Count"?: number;
 }
 
 export interface Purchase {

@@ -81,7 +81,8 @@ export const SaleAddModal: React.FC<SaleAddModalProps> = ({ onClose, onSave, pur
       "Variant price": variantPriceParsed,
       "Total quantity": totalQuantityParsed,
       "Total price": formData.delivery === "Delivered" ? variantPriceParsed * totalQuantityParsed : 0,
-      "WHATSAPP": whatsappUrl
+      "WhatsApp Sent": "لا",
+      "WhatsApp Count": 0
     });
   };
 
@@ -309,7 +310,7 @@ export const SaleAddModal: React.FC<SaleAddModalProps> = ({ onClose, onSave, pur
                   }}
                   className="w-full bg-[#0d1426] border border-white/10 text-white rounded-xl px-3 py-2 text-xs focus:border-blue-500/50"
                 >
-                  <option value="" className="bg-[#0f172a] text-gray-500"> </option>
+                  <option value="" className="bg-[#0f172a] text-gray-500">Aucune</option>
                   {CONDITIONS.map(c => (
                     <option key={c.value} value={c.value} className="bg-[#0f172a]">{c.label}</option>
                   ))}
@@ -340,16 +341,46 @@ export const SaleAddModal: React.FC<SaleAddModalProps> = ({ onClose, onSave, pur
 
             <div>
               <label className="block text-xs font-medium text-gray-300 mb-1">شركة الشحن (Livreur)</label>
-              <select
-                value={formData.Livreur}
-                onChange={e => setFormData({ ...formData, Livreur: e.target.value })}
-                className="w-full bg-[#0d1426] border border-white/10 text-white rounded-xl px-3 py-2 text-xs focus:border-blue-500/50"
-              >
-                <option value="" className="bg-[#0f172a] text-gray-500"> </option>
-                {livreurOptions.map(l => (
-                  <option key={l} value={l} className="bg-[#0f172a]">{l}</option>
-                ))}
-              </select>
+              {!showNewLivreur ? (
+                <select
+                  value={formData.Livreur}
+                  onChange={e => {
+                    if (e.target.value === "__NEW__") {
+                      setShowNewLivreur(true);
+                      setFormData({ ...formData, Livreur: "" });
+                    } else {
+                      setFormData({ ...formData, Livreur: e.target.value });
+                    }
+                  }}
+                  className="w-full bg-[#0d1426] border border-white/10 text-white rounded-xl px-3 py-2 text-xs focus:border-blue-500/50"
+                >
+                  <option value="" className="bg-[#0f172a] text-gray-500"> </option>
+                  {livreurOptions.map(l => (
+                    <option key={l} value={l} className="bg-[#0f172a]">{l}</option>
+                  ))}
+                  <option value="__NEW__" className="text-blue-400 font-bold">➕ Ajouter nouveau...</option>
+                </select>
+              ) : (
+                <div className="space-y-1.5 text-right">
+                  <input
+                    type="text"
+                    placeholder="Livreur..."
+                    value={formData.Livreur}
+                    onChange={e => setFormData({ ...formData, Livreur: e.target.value })}
+                    className="w-full bg-[#0d1426] border border-blue-500/50 text-white rounded-xl px-3 py-2 text-sm text-right"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowNewLivreur(false);
+                      setFormData({ ...formData, Livreur: "" });
+                    }}
+                    className="text-xs text-blue-400 hover:underline inline-block"
+                  >
+                    Retour / الرجوع
+                  </button>
+                </div>
+              )}
             </div>
 
             <div>
@@ -768,9 +799,7 @@ export const GenericModal: React.FC<GenericModalProps> = ({ onClose, onSave, tit
                         {f.options?.map(opt => (
                           <option key={opt} value={opt} className="bg-[#0f172a]">{opt}</option>
                         ))}
-                        {f.key !== "Livreur" && (
-                          <option value="__NEW__" className="text-blue-400 font-bold">➕ Ajouter nouveau...</option>
-                        )}
+                        <option value="__NEW__" className="text-blue-400 font-bold">➕ Ajouter nouveau...</option>
                       </select>
                     ) : (
                       <div className="space-y-1 text-right">

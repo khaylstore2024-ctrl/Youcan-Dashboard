@@ -21,9 +21,11 @@ import { User } from "firebase/auth";
 interface SettingsProps {
   onSync: () => void;
   isLoading: boolean;
+  currentFont: string;
+  onFontChange: (fontName: string) => void;
 }
 
-export const SettingsTab: React.FC<SettingsProps> = ({ onSync, isLoading }) => {
+export const SettingsTab: React.FC<SettingsProps> = ({ onSync, isLoading, currentFont, onFontChange }) => {
   const [spreadsheetId, setSpreadsheetId] = useState("");
   const [clientEmail, setClientEmail] = useState("");
   const [privateKey, setPrivateKey] = useState("");
@@ -472,8 +474,22 @@ export const SettingsTab: React.FC<SettingsProps> = ({ onSync, isLoading }) => {
               </div>
               <h3 className="text-base font-bold text-white mb-2">التخصيص والسمة البصرية</h3>
               <p className="text-xs text-gray-400 leading-relaxed mb-4">
-                إعدادات السمة العامة للتطبيق وتنسيق العملات والتبديل التلقائي.
+                إعدادات السمة العامة للتطبيق وتنسيق العملات والتبديل التلقائي وتوحيد الخط الموحد.
               </p>
+
+              {/* Font Selector */}
+              <div className="mb-5 space-y-2 border-b border-white/5 pb-4">
+                <label className="text-xs font-bold text-gray-300 block mb-1">خط التطبيق الموحد:</label>
+                <select
+                  value={currentFont}
+                  onChange={(e) => onFontChange(e.target.value)}
+                  className="w-full bg-white/5 text-xs text-gray-200 border border-white/10 rounded-xl px-3 py-2.5 focus:outline-none focus:border-purple-500 font-sans font-medium cursor-pointer"
+                >
+                  <option value="Cairo" className="bg-[#0f172a] text-white">Cairo (خط القاهرة الافتراضي الأنيق)</option>
+                  <option value="Tajawal" className="bg-[#0f172a] text-white">Tajawal (خط تجول العصري)</option>
+                  <option value="Inter" className="bg-[#0f172a] text-white">Inter (خط إلكتروني عالمي)</option>
+                </select>
+              </div>
 
               <div className="space-y-3 text-xs">
                 <div className="flex justify-between items-center py-2 border-b border-white/5">

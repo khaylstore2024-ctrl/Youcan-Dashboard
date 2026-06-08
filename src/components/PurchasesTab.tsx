@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Purchase, Order, Payment } from "../types";
 import { formatCurrency } from "../data";
-import { Plus, Edit, Package, Users, Hash, TrendingUp, AlertCircle, ShoppingCart, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Plus, Edit, Package, Users, Hash, TrendingUp, AlertCircle, ShoppingCart, ArrowUpDown, ArrowUp, ArrowDown, Filter, X } from "lucide-react";
 
 interface PurchasesTabProps {
   purchases: Purchase[];
@@ -16,6 +16,11 @@ export const PurchasesTab: React.FC<PurchasesTabProps> = ({ purchases, sales, pa
 
   // Filter & Searches
   const [searchQuery, setSearchQuery] = useState("");
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [selectedSupplierFilter, setSelectedSupplierFilter] = useState("");
+  const [selectedProductFilter, setSelectedProductFilter] = useState("");
+  const [selectedSalesStockFilter, setSelectedSalesStockFilter] = useState(""); // "" | "has_sales" | "no_sales"
+  const [selectedSupplierDebtFilter, setSelectedSupplierDebtFilter] = useState(""); // "" | "has_debt" | "settled" | "has_credit"
 
   // Sorting States
   const [sortField, setSortField] = useState<string>("date");
@@ -126,16 +131,51 @@ export const PurchasesTab: React.FC<PurchasesTabProps> = ({ purchases, sales, pa
     return Object.values(map);
   }, [purchases, sales]);
 
-  // Filter lists based on search query
-  const filteredAggregatedPurchases = aggregatedPurchases.filter(p => 
-    (p.Produit || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (p.Code || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (p.Fournisseur || "").toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Unique suppliers and products lists for select filters
+  const uniqueSuppliers = React.useMemo(() => {
+    return Array.from(new Set(purchases.map(p => p.Fournisseur).filter(Boolean))).sort();
+  }, [purchases]);
 
-  const filteredSuppliers = supplierAggregates.filter(s =>
-    s.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const uniqueProducts = React.useMemo(() => {
+    return Array.from(new Set(purchases.map(p => p.Produit).filter(Boolean))).sort();
+  }, [purchases]);
+
+  // Filter lists based on search query and advanced filters
+  const filteredAggregatedPurchases = aggregatedPurchases.filter(p => {
+    const matchesSearch = !searchQuery ? true : (
+      (p.Produit || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.Code || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.Fournisseur || "").toLowerCase().includes(searchQuery.toLowerCase())
+    );
+    
+    const matchesSupplier = !selectedSupplierFilter ? true : p.Fournisseur === selectedSupplierFilter;
+    const matchesProduct = !selectedProductFilter ? true : p.Produit === selectedProductFilter;
+    
+    let matchesSalesStock = true;
+    if (selectedSalesStockFilter === "has_sales") {
+      matchesSalesStock = (p.totalQtySold || 0) > 0;
+    } else if (selectedSalesStockFilter === "no_sales") {
+      matchesSalesStock = (p.totalQtySold || 0) === 0;
+    }
+
+    return matchesSearch && matchesSupplier && matchesProduct && matchesSalesStock;
+  });
+
+  const filteredSuppliers = supplierAggregates.filter(s => {
+    const matchesSearch = !searchQuery ? true : s.name.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    let matchesDebt = true;
+    const balance = s.totalPurchases - s.totalPayments;
+    if (selectedSupplierDebtFilter === "has_debt") {
+      matchesDebt = balance > 0;
+    } else if (selectedSupplierDebtFilter === "settled") {
+      matchesDebt = balance === 0;
+    } else if (selectedSupplierDebtFilter === "has_credit") {
+      matchesDebt = balance < 0;
+    }
+
+    return matchesSearch && matchesDebt;
+  });
 
   const sortedAggregatedPurchases = React.useMemo(() => {
     const items = [...filteredAggregatedPurchases];
@@ -200,6 +240,42 @@ export const PurchasesTab: React.FC<PurchasesTabProps> = ({ purchases, sales, pa
     return items;
   }, [filteredSuppliers, supplierSortField, supplierSortDirection]);
 
+  // 3. Purchases tab specific stats overview
+  const purchasesStats = React.useMemo(() => {
+    const totalQtyBought = purchases.reduce((acc, p) => acc + (p.nombre || 0), 0);
+    const distinctProductsCount = new Set(purchases.map(p => p.Produit).filter(Boolean)).size;
+    const totalPurchaseCost = purchases.reduce((acc, p) => acc + (p.total || 0), 0);
+    const totalQtySoldSum = aggregatedPurchases.reduce((acc, p) => acc + (p.totalQtySold || 0), 0);
+
+    return {
+      totalQtyBought,
+      distinctProductsCount,
+      totalPurchaseCost,
+      totalQtySoldSum
+    };
+  }, [purchases, aggregatedPurchases]);
+
+  // 4. Supplier tab specific stats overview
+  const suppliersStats = React.useMemo(() => {
+    const totalInvoicesValue = supplierAggregates.reduce((acc, s) => acc + (s.totalPurchases || 0), 0);
+    const totalPaymentsValue = supplierAggregates.reduce((acc, s) => acc + (s.totalPayments || 0), 0);
+    
+    // Sum of unpaid debts where debt > 0
+    const totalUnpaidDebts = supplierAggregates.reduce((acc, s) => {
+      const balance = s.totalPurchases - s.totalPayments;
+      return acc + (balance > 0 ? balance : 0);
+    }, 0);
+
+    const totalSuppliersCount = supplierAggregates.length;
+
+    return {
+      totalInvoicesValue,
+      totalPaymentsValue,
+      totalUnpaidDebts,
+      totalSuppliersCount
+    };
+  }, [supplierAggregates]);
+
   return (
     <div className="space-y-6 text-right animate-fade-in" dir="rtl">
       {/* Switch Sub Tabs */}
@@ -239,6 +315,18 @@ export const PurchasesTab: React.FC<PurchasesTabProps> = ({ purchases, sales, pa
             className="w-full sm:w-64 bg-[#0d1426] border border-white/10 text-xs rounded-xl px-4 py-2 text-white focus:outline-none focus:border-blue-500/50"
           />
           <button
+            onClick={() => setIsFilterOpen(!isFilterOpen)}
+            className={`h-9 px-3 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0 ${
+              isFilterOpen || selectedSupplierFilter || selectedProductFilter || selectedSalesStockFilter || selectedSupplierDebtFilter
+                ? "bg-blue-600/10 text-blue-400 border-blue-500/30"
+                : "bg-[#0d1426] text-gray-400 border-white/10 hover:text-white"
+            }`}
+            title="تصفية متقدمة"
+          >
+            <Filter className="w-4 h-4" />
+            <span className="hidden md:inline">تصفية</span>
+          </button>
+          <button
             onClick={onAddPurchase}
             className="h-9 px-4 bg-emerald-600 hover:bg-emerald-700 rounded-xl text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0"
           >
@@ -247,6 +335,180 @@ export const PurchasesTab: React.FC<PurchasesTabProps> = ({ purchases, sales, pa
           </button>
         </div>
       </div>
+
+      {/* Advanced Collapsible Filter Panel */}
+      {isFilterOpen && (
+        <div className="bg-[#111930]/65 border border-white/5 p-5 rounded-2xl gap-4 grid grid-cols-2 md:grid-cols-4 items-end glass-effect animate-slide-down">
+          {activeSubTab === "purchases" ? (
+            <>
+              {/* Filter 1: Supplier */}
+              <div>
+                <label className="block text-[11px] text-gray-400 mb-1.5 font-medium">المورد</label>
+                <select
+                  value={selectedSupplierFilter}
+                  onChange={e => setSelectedSupplierFilter(e.target.value)}
+                  className="w-full bg-[#0d1426] border border-white/10 text-white rounded-xl px-3 py-2 text-xs font-sans focus:outline-none focus:border-blue-500/50"
+                >
+                  <option value="">الكل</option>
+                  {uniqueSuppliers.map(sup => (
+                    <option key={sup} value={sup}>{sup}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filter 2: Product */}
+              <div>
+                <label className="block text-[11px] text-gray-400 mb-1.5 font-medium">المنتج</label>
+                <select
+                  value={selectedProductFilter}
+                  onChange={e => setSelectedProductFilter(e.target.value)}
+                  className="w-full bg-[#0d1426] border border-white/10 text-white rounded-xl px-3 py-2 text-xs font-sans focus:outline-none focus:border-blue-500/50"
+                >
+                  <option value="">الكل</option>
+                  {uniqueProducts.map(prod => (
+                    <option key={prod} value={prod}>{prod}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filter 3: Sales Track */}
+              <div>
+                <label className="block text-[11px] text-gray-400 mb-1.5 font-medium">البيع والطلب</label>
+                <select
+                  value={selectedSalesStockFilter}
+                  onChange={e => setSelectedSalesStockFilter(e.target.value)}
+                  className="w-full bg-[#0d1426] border border-white/10 text-white rounded-xl px-3 py-2 text-xs font-sans focus:outline-none focus:border-blue-500/50"
+                >
+                  <option value="">الكل</option>
+                  <option value="has_sales">شحنات تم بيع قطع منها</option>
+                  <option value="no_sales">شحنات لم يتم البيع منها</option>
+                </select>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Filter 4: Supplier Debt Standing */}
+              <div>
+                <label className="block text-[11px] text-gray-400 mb-1.5 font-medium">حالة المديونية</label>
+                <select
+                  value={selectedSupplierDebtFilter}
+                  onChange={e => setSelectedSupplierDebtFilter(e.target.value)}
+                  className="w-full bg-[#0d1426] border border-white/10 text-white rounded-xl px-3 py-2 text-xs font-sans focus:outline-none focus:border-blue-500/50"
+                >
+                  <option value="">كل الحسابات</option>
+                  <option value="has_debt">عليهم مبالغ مستحقة الدفع</option>
+                  <option value="settled">مسدد بالكامل (رصيد 0)</option>
+                  <option value="has_credit">رصيد دائن لكم (دفعات زائدة)</option>
+                </select>
+              </div>
+            </>
+          )}
+
+          {/* Action: Clear Filters Button */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setSelectedSupplierFilter("");
+                setSelectedProductFilter("");
+                setSelectedSalesStockFilter("");
+                setSelectedSupplierDebtFilter("");
+                setSearchQuery("");
+              }}
+              className="px-4 py-2 bg-white/5 hover:bg-white/10 text-xs font-medium text-gray-400 hover:text-white rounded-xl transition-colors border border-white/5 flex items-center gap-1 w-full justify-center"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>إعادة تعيين</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* KPI STATS ROW DETECTED SUB-TAB */}
+      {activeSubTab === "purchases" ? (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6" id="purchases-kpi-row">
+          {/* Card 1: تكلفة المشتريات الإجمالية */}
+          <div className="bg-[#111930]/60 border border-white/5 p-5 rounded-2xl relative overflow-hidden glass-effect">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-red-400"></div>
+            <div className="text-gray-400 text-xs font-semibold mb-1">تكلفة المشتريات الإجمالية</div>
+            <div className="text-2xl font-black font-mono tracking-tight text-red-400">
+              {formatCurrency(purchasesStats.totalPurchaseCost)}
+            </div>
+            <div className="mt-2 text-[10px] text-gray-500">إجمالي المبالغ المستثمرة في السلع المستوردة</div>
+          </div>
+
+          {/* Card 2: إجمالي القطع المستوردة */}
+          <div className="bg-[#111930]/60 border border-white/5 p-5 rounded-2xl relative overflow-hidden glass-effect">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-blue-400"></div>
+            <div className="text-gray-400 text-xs font-semibold mb-1">إجمالي القطع المستوردة</div>
+            <div className="text-2xl font-black font-mono tracking-tight text-blue-400">
+              {purchasesStats.totalQtyBought} <span className="text-xs font-normal text-gray-400">قطعة</span>
+            </div>
+            <div className="mt-2 text-[10px] text-gray-500">مجموع كميات الشحنات المقيدة بالملف</div>
+          </div>
+
+          {/* Card 3: الأصناف المستوردة */}
+          <div className="bg-[#111930]/60 border border-white/5 p-5 rounded-2xl relative overflow-hidden glass-effect">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-purple-400"></div>
+            <div className="text-gray-400 text-xs font-semibold mb-1">عدد الأصناف المستوردة</div>
+            <div className="text-2xl font-black font-mono tracking-tight text-purple-400">
+              {purchasesStats.distinctProductsCount} <span className="text-xs font-normal text-gray-400">صنف</span>
+            </div>
+            <div className="mt-2 text-[10px] text-gray-500">عدد المنتجات الفريدة المستوردة بالكامل</div>
+          </div>
+
+          {/* Card 4: إجمالي القطع المباعة */}
+          <div className="bg-[#111930]/60 border border-white/5 p-5 rounded-2xl relative overflow-hidden glass-effect">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-emerald-400"></div>
+            <div className="text-gray-400 text-xs font-semibold mb-1">إجمالي القطع المباعة (تم التسليم)</div>
+            <div className="text-2xl font-black font-mono tracking-tight text-emerald-400">
+              {purchasesStats.totalQtySoldSum} <span className="text-xs font-normal text-gray-400">مباعة</span>
+            </div>
+            <div className="mt-2 text-[10px] text-gray-500 font-bold text-emerald-500">من الطلبات المسلّمة (Delivered)</div>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6" id="suppliers-kpi-row">
+          {/* Card 1: إجمالي ديون الموردين الكلية */}
+          <div className="bg-[#111930]/60 border border-white/5 p-5 rounded-2xl relative overflow-hidden glass-effect">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-red-400"></div>
+            <div className="text-gray-400 text-xs font-semibold mb-1">إجمالي الديون (المشتريات الكلية)</div>
+            <div className="text-2xl font-black font-mono tracking-tight text-red-400">
+              {formatCurrency(suppliersStats.totalInvoicesValue)}
+            </div>
+            <div className="mt-2 text-[10px] text-gray-500">قيمة شحنات الشراء المستوردة بالكامل</div>
+          </div>
+
+          {/* Card 2: إجمالي المبالغ المدفوعة */}
+          <div className="bg-[#111930]/60 border border-white/5 p-5 rounded-2xl relative overflow-hidden glass-effect">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-emerald-400"></div>
+            <div className="text-gray-400 text-xs font-semibold mb-1">إجمالي المدفوع للموردين</div>
+            <div className="text-2xl font-black font-mono tracking-tight text-emerald-400">
+              {formatCurrency(suppliersStats.totalPaymentsValue)}
+            </div>
+            <div className="mt-2 text-[10px] text-gray-500">مجموع قيم مستندات السداد المسجلة بالكامل</div>
+          </div>
+
+          {/* Card 3: الديون المتبقية المستحقة */}
+          <div className="bg-[#111930]/60 border border-white/5 p-5 rounded-2xl relative overflow-hidden glass-effect">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-amber-400"></div>
+            <div className="text-gray-400 text-xs font-semibold mb-1">الديون المتبقية المستحقة للموردين</div>
+            <div className="text-2xl font-black font-mono tracking-tight text-amber-400">
+              {formatCurrency(suppliersStats.totalUnpaidDebts)}
+            </div>
+            <div className="mt-2 text-[10px] text-gray-500 font-bold text-amber-500">مجموع المبالغ المتبقية الواجب دفعها</div>
+          </div>
+
+          {/* Card 4: عدد الموردين المسجلين */}
+          <div className="bg-[#111930]/60 border border-white/5 p-5 rounded-2xl relative overflow-hidden glass-effect">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-[#ec4899]"></div>
+            <div className="text-gray-400 text-xs font-semibold mb-1">عدد الموردين المسجلين</div>
+            <div className="text-2xl font-black font-mono tracking-tight text-rose-400">
+              {suppliersStats.totalSuppliersCount} <span className="text-xs font-normal text-gray-400">مورد</span>
+            </div>
+            <div className="mt-2 text-[10px] text-gray-500">عدد الشركاء الموردين النشطين بالملف</div>
+          </div>
+        </div>
+      )}
 
       {activeSubTab === "purchases" ? (
         /* Double Column Purchases Aggregation View */

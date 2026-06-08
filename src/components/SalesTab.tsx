@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Order, Purchase } from "../types";
 import { MOROCCAN_CITIES, CONDITIONS, DELIVERY_STATUSES, LIVREURS, formatCurrency, formatDateDisplay, generateWhatsAppUrl } from "../data";
-import { Search, Filter, Plus, Calendar, RotateCcw, Edit, Phone, MessageCircle, ExternalLink, ChevronRight, ChevronLeft, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Search, Filter, Plus, Calendar, RotateCcw, Edit, Phone, MessageCircle, ExternalLink, ChevronRight, ChevronLeft, ArrowUpDown, ArrowUp, ArrowDown, Copy } from "lucide-react";
 import { ConfirmationDialog } from "./ConfirmationDialog";
 
 interface SalesTabProps {
@@ -10,8 +10,8 @@ interface SalesTabProps {
   onAddSale: () => void;
   onEditSale: (order: Order) => void;
   onUpdateOrder: (rowNum: number, updates: any) => void;
-  salesPreset?: "all" | "delivery_requests" | "delivery_status" | "no_status";
-  setSalesPreset?: (preset: "all" | "delivery_requests" | "delivery_status" | "no_status") => void;
+  salesPreset?: "all" | "delivery_requests" | "delivery_status" | "no_status" | "delivered_parcels";
+  setSalesPreset?: (preset: "all" | "delivery_requests" | "delivery_status" | "no_status" | "delivered_parcels") => void;
 }
 
 export const SalesTab: React.FC<SalesTabProps> = ({ 
@@ -49,6 +49,7 @@ export const SalesTab: React.FC<SalesTabProps> = ({
   // Filter States
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCondition, setSelectedCondition] = useState("");
+  const [selectedDelivery, setSelectedDelivery] = useState("");
   const [selectedCity, setSelectedCity] = useState("");
   const [selectedLivreur, setSelectedLivreur] = useState("");
   const [selectedDateRange, setSelectedDateRange] = useState("month"); // Default option is "month" as per requirement Section 9!
@@ -57,6 +58,19 @@ export const SalesTab: React.FC<SalesTabProps> = ({
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 6;
+
+  // Track copied state for phone number
+  const [copiedPhoneRow, setCopiedPhoneRow] = useState<number | null>(null);
+
+  // Local Storage mapped product image/URL configs
+  const mediaConfigs = React.useMemo(() => {
+    try {
+      const saved = localStorage.getItem("khayl_product_media_configs2");
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  }, []);
 
   // Custom filter check for date ranges
   const isDateInSelectedRange = (dateStr: string, range: string): boolean => {
@@ -104,7 +118,8 @@ export const SalesTab: React.FC<SalesTabProps> = ({
       }
     } else if (salesPreset === "delivery_status") {
       const isLivreurFilled = !!sale.Livreur && sale.Livreur.trim() !== "";
-      if (sale.Condition !== "Confirmed" || !isLivreurFilled) {
+      const isDeliveryEmpty = !sale.delivery || sale.delivery.trim() === "";
+      if (sale.Condition !== "Confirmed" || !isLivreurFilled || !isDeliveryEmpty) {
         return false;
       }
     } else if (salesPreset === "no_status") {
@@ -112,6 +127,10 @@ export const SalesTab: React.FC<SalesTabProps> = ({
       const isLivreurEmpty = !sale.Livreur || sale.Livreur.trim() === "";
       const isDeliveryEmpty = !sale.delivery || sale.delivery.trim() === "";
       if (!isConditionEmpty || !isLivreurEmpty || !isDeliveryEmpty) {
+        return false;
+      }
+    } else if (salesPreset === "delivered_parcels") {
+      if (sale.delivery !== "Delivered") {
         return false;
       }
     }
@@ -124,11 +143,15 @@ export const SalesTab: React.FC<SalesTabProps> = ({
     );
 
     const matchesCondition = !selectedCondition ? true : sale.Condition === selectedCondition;
+    const matchesDelivery = !selectedDelivery ? true : (
+      (selectedDelivery === "Pending" && (!sale.delivery || sale.delivery.trim() === "")) ||
+      (sale.delivery === selectedDelivery)
+    );
     const matchesCity = !selectedCity ? true : sale.City === selectedCity;
     const matchesLivreur = !selectedLivreur ? true : sale.Livreur === selectedLivreur;
     const matchesDate = isDateInSelectedRange(sale["Order date"], selectedDateRange);
 
-    return matchesSearch && matchesCondition && matchesCity && matchesLivreur && matchesDate;
+    return matchesSearch && matchesCondition && matchesDelivery && matchesCity && matchesLivreur && matchesDate;
   });
 
   // Sorting State
@@ -197,6 +220,7 @@ export const SalesTab: React.FC<SalesTabProps> = ({
   const handleClearFilters = () => {
     setSearchQuery("");
     setSelectedCondition("");
+    setSelectedDelivery("");
     setSelectedCity("");
     setSelectedLivreur("");
     setSelectedDateRange("all");
@@ -271,9 +295,10 @@ export const SalesTab: React.FC<SalesTabProps> = ({
             <span className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-ping"></span>
             <span>تصفية نشطة من القائمة الجانبية:</span>
             <span className="px-3 py-1 bg-blue-500/15 text-blue-300 rounded-lg border border-blue-500/25">
-              {salesPreset === "delivery_requests" && "طلبات التوصيل (Condition: Confirmed، الموزع فارغ، حالة التسليم فارغة)"}
-              {salesPreset === "delivery_status" && "حاله التسليم (Condition: Confirmed، الموزع مملوء)"}
-              {salesPreset === "no_status" && "بدون حاله (Condition فارغ، الموزع فارغ، حالة التسليم فارغة)"}
+              {salesPreset === "delivery_requests" && "طلبات الشحن (Condition: Confirmed، الموزع فارغ، حالة التسليم فارغة)"}
+              {salesPreset === "delivery_status" && "حاله التسليم (Condition: Confirmed، الموزع مملوء، حالة التسليم فارغة)"}
+              {salesPreset === "no_status" && "بدون تاكيد (Condition فارغ، الموزع فارغ، حالة التسليم فارغة)"}
+              {salesPreset === "delivered_parcels" && "الطرود المسلمة (حالة التسليم: Delivered)"}
             </span>
           </div>
           <button
@@ -323,7 +348,7 @@ export const SalesTab: React.FC<SalesTabProps> = ({
 
       {/* Advanced Collapsible Filter Panel */}
       {isFilterOpen && (
-        <div className="bg-[#111930]/65 border border-white/5 p-5 rounded-2xl gap-4 grid grid-cols-2 md:grid-cols-5 items-end glass-effect animate-slide-down">
+        <div className="bg-[#111930]/65 border border-white/5 p-5 rounded-2xl gap-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 items-end glass-effect animate-slide-down">
           <div>
             <label className="block text-[11px] text-gray-400 mb-1.5 font-medium">النطاق الزمني</label>
             <div className="relative">
@@ -343,11 +368,11 @@ export const SalesTab: React.FC<SalesTabProps> = ({
           </div>
 
           <div>
-            <label className="block text-[11px] text-gray-400 mb-1.5 font-medium">الحالة (Condition)</label>
+            <label className="block text-[11px] text-gray-400 mb-1.5 font-medium">الإجراء (Condition)</label>
             <select
               value={selectedCondition}
               onChange={e => { setSelectedCondition(e.target.value); setCurrentPage(1); }}
-              className="w-full bg-[#0d1426] border border-white/10 text-white rounded-xl px-3 py-2 text-xs"
+              className="w-full bg-[#0d1426] border border-white/10 text-white rounded-xl px-3 py-2 text-xs font-sans"
             >
               <option value="">الكل</option>
               {CONDITIONS.map(c => (
@@ -357,11 +382,26 @@ export const SalesTab: React.FC<SalesTabProps> = ({
           </div>
 
           <div>
+            <label className="block text-[11px] text-gray-400 mb-1.5 font-medium">الحالة (Delivery)</label>
+            <select
+              value={selectedDelivery}
+              onChange={e => { setSelectedDelivery(e.target.value); setCurrentPage(1); }}
+              className="w-full bg-[#0d1426] border border-white/10 text-white rounded-xl px-3 py-2 text-xs font-sans"
+            >
+              <option value="">الكل</option>
+              <option value="Pending">بانتظار التسليم</option>
+              {DELIVERY_STATUSES.map(d => (
+                <option key={d.value} value={d.value}>{d.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
             <label className="block text-[11px] text-gray-400 mb-1.5 font-medium">المدينة</label>
             <select
               value={selectedCity}
               onChange={e => { setSelectedCity(e.target.value); setCurrentPage(1); }}
-              className="w-full bg-[#0d1426] border border-white/10 text-white rounded-xl px-3 py-2 text-xs"
+              className="w-full bg-[#0d1426] border border-white/10 text-white rounded-xl px-3 py-2 text-xs font-sans"
             >
               <option value="">الكل</option>
               {cityOptions.map(c => (
@@ -375,7 +415,7 @@ export const SalesTab: React.FC<SalesTabProps> = ({
             <select
               value={selectedLivreur}
               onChange={e => { setSelectedLivreur(e.target.value); setCurrentPage(1); }}
-              className="w-full bg-[#0d1426] border border-white/10 text-white rounded-xl px-3 py-2 text-xs"
+              className="w-full bg-[#0d1426] border border-white/10 text-white rounded-xl px-3 py-2 text-xs font-sans"
             >
               <option value="">الكل</option>
               {livreurOptions.map(l => (
@@ -475,8 +515,31 @@ export const SalesTab: React.FC<SalesTabProps> = ({
               ) : (
                 currentSales.map((sale, idx) => {
                   const rowNum = sale._rowNum || (idx + 2);
+                  // Check if order is cancelled or returned
+                  const isCancelledOrReturned = 
+                    sale.Condition === "Anule" || 
+                    sale.delivery === "Retour" || 
+                    sale.delivery === "annuler" ||
+                    (sale.delivery && (
+                      sale.delivery.toString().toLowerCase().includes("annul") ||
+                      sale.delivery.toString().toLowerCase().includes("retour")
+                    ));
+
+                  // Resolve custom mapped URL and local image from mapper dashboard
+                  const pk = (sale["Product name"] || "").trim().toLowerCase();
+                  const customMedia = mediaConfigs[pk];
+                  const resolvedUrl = customMedia?.url || sale["Product URL"];
+                  const resolvedImage = customMedia?.image;
+
                   return (
-                    <tr key={sale["Order ID"] + idx} className="hover:bg-white/[0.02] transition-colors group">
+                    <tr 
+                      key={sale["Order ID"] + idx} 
+                      className={`transition-colors group ${
+                        isCancelledOrReturned 
+                          ? "bg-red-500/[0.07] hover:bg-red-500/[0.12]" 
+                          : "hover:bg-white/[0.02]"
+                      }`}
+                    >
                       {/* Order ID */}
                       <td className="px-5 py-3.5 font-mono text-blue-400 font-bold tracking-wide cell-order-id select-all">
                         {sale["Order ID"]}
@@ -493,21 +556,52 @@ export const SalesTab: React.FC<SalesTabProps> = ({
                       </td>
 
                       {/* Phone */}
-                      <td className="px-5 py-3.5 font-mono tracking-tight text-white/90">
-                        {sale.Phone || "-"}
+                      <td 
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (sale.Phone) {
+                            try {
+                              await navigator.clipboard.writeText(sale.Phone);
+                              const identifier = sale._rowNum !== undefined ? sale._rowNum : idx;
+                              setCopiedPhoneRow(identifier);
+                              setTimeout(() => setCopiedPhoneRow(null), 2000);
+                            } catch (err) {
+                              console.error("Failed to copy phone:", err);
+                            }
+                          }
+                        }}
+                        className="px-5 py-3.5 font-mono tracking-tight text-white/90 cursor-pointer hover:text-emerald-400 active:scale-95 transition-all relative group"
+                        title="انقر لنسخ رقم الهاتف"
+                      >
+                        <div className="flex items-center gap-1.5 justify-end">
+                          <span>{sale.Phone || "-"}</span>
+                          {(sale._rowNum !== undefined ? sale._rowNum : idx) === copiedPhoneRow ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded font-sans bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 scale-90">
+                              تم النسخ!
+                            </span>
+                          ) : (
+                            <Copy className="w-3 h-3 text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          )}
+                        </div>
                       </td>
 
-                      {/* City + Region */}
+                      {/* City Column */}
                       <td className="px-5 py-3.5">
                         <div className="font-semibold text-gray-100">{sale.City}</div>
-                        <div className="text-[10px] text-gray-500 mt-0.5">{sale.Region || sale.City}</div>
                       </td>
 
                       {/* Product CODE */}
-                      <td className="px-5 py-3.5 max-w-[150px] truncate">
-                        <span className="px-2 py-0.5 bg-white/5 border border-white/5 rounded text-gray-300 font-mono text-[10px] uppercase font-semibold">
-                          {sale["Product name"]}
-                        </span>
+                      <td className="px-5 py-3.5 max-w-[180px] truncate">
+                        <div className="flex items-center gap-2 font-mono">
+                          {resolvedImage && (
+                            <div className="w-6 h-6 rounded-md overflow-hidden bg-[#0a0e1a] shrink-0 border border-white/10" title="صورة مخصصة من الكمبيوتر">
+                              <img src={resolvedImage} alt={sale["Product name"]} className="w-full h-full object-cover" />
+                            </div>
+                          )}
+                          <span className="px-2 py-0.5 bg-white/5 border border-white/5 rounded text-gray-300 font-mono text-[10px] uppercase font-semibold">
+                            {sale["Product name"]}
+                          </span>
+                        </div>
                       </td>
 
                       {/* Variant Price */}
@@ -518,14 +612,17 @@ export const SalesTab: React.FC<SalesTabProps> = ({
                       {/* Condition Selection Dropdown */}
                       <td className="px-3 py-3.5">
                         <select
-                          value={sale.Condition || "Confirmed"}
+                          value={sale.Condition || ""}
                           onChange={e => handleInlineChange(rowNum, "Condition", e.target.value, sale)}
                           className={`bg-[#0d1426] border rounded-lg px-2 py-1 text-[11px] font-sans focus:border-blue-500/50 ${
                             sale.Condition === "Confirmed"
                               ? "text-blue-400 border-blue-500/30"
+                              : !sale.Condition
+                              ? "text-gray-450 border-gray-500/30"
                               : "text-amber-400 border-amber-500/30"
                           }`}
                         >
+                          <option value="" className="bg-[#0f172a] text-gray-500">Aucune</option>
                           {CONDITIONS.map(cond => (
                             <option 
                               key={cond.value} 
@@ -550,7 +647,7 @@ export const SalesTab: React.FC<SalesTabProps> = ({
                           }`}
                         >
                           <option value="" className="bg-[#0f172a] text-amber-400">بدون موزع</option>
-                          {LIVREURS.map(liv => (
+                          {livreurOptions.map(liv => (
                             <option 
                               key={liv} 
                               value={liv} 
@@ -573,7 +670,7 @@ export const SalesTab: React.FC<SalesTabProps> = ({
                               : "text-amber-400 border-amber-500/30"
                           }`}
                         >
-                          <option value="" className="bg-[#0d1426] text-amber-400 italic">بانتظار الشحن</option>
+                          <option value="" className="bg-[#0d1426] text-amber-400 italic">بانتظار التسليم</option>
                           {DELIVERY_STATUSES.map(stat => (
                             <option 
                               key={stat.value} 
@@ -623,12 +720,12 @@ export const SalesTab: React.FC<SalesTabProps> = ({
                           )}
 
                           {/* Target Landing Page Target */}
-                          {sale["Product URL"] && (
+                          {resolvedUrl && (
                             <a
-                              href={sale["Product URL"]}
+                              href={resolvedUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              title="رابط صفحة المبيعات بالمتجر"
+                              title="رابط صفحة المبيعات بالمتجر (مخصص)"
                               className="p-1.5 bg-white/5 hover:bg-amber-600/10 hover:text-amber-400 rounded-lg text-gray-400 transition-all border border-transparent hover:border-amber-500/15"
                             >
                               <ExternalLink className="w-3.5 h-3.5" />

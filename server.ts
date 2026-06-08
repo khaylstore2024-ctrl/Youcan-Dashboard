@@ -2,6 +2,8 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import https from "https";
+import http from "http";
 
 const app = express();
 const PORT = 3000;
@@ -78,7 +80,8 @@ function ensureDbExists() {
           "Bénéfice": 209,
           "Fournisseur": "مورد الشمال",
           "Fourni price": 250,
-          "WHATSAPP": "https://wa.me/212661234567"
+          "WhatsApp Sent": "لا",
+          "WhatsApp Count": 0
         },
         {
           _rowNum: 3,
@@ -101,7 +104,8 @@ function ensureDbExists() {
           "Bénéfice": 220,
           "Fournisseur": "مورد الشمال",
           "Fourni price": 180,
-          "WHATSAPP": "https://wa.me/212650123456"
+          "WhatsApp Sent": "لا",
+          "WhatsApp Count": 0
         },
         {
           _rowNum: 4,
@@ -124,7 +128,8 @@ function ensureDbExists() {
           "Bénéfice": 40,
           "Fournisseur": "العلا للتجارة",
           "Fourni price": 40,
-          "WHATSAPP": "https://wa.me/212663456789"
+          "WhatsApp Sent": "لا",
+          "WhatsApp Count": 0
         },
         {
           _rowNum: 5,
@@ -147,7 +152,8 @@ function ensureDbExists() {
           "Bénéfice": 0,
           "Fournisseur": "",
           "Fourni price": 0,
-          "WHATSAPP": "https://wa.me/212771239876"
+          "WhatsApp Sent": "لا",
+          "WhatsApp Count": 0
         },
         {
           _rowNum: 6,
@@ -170,7 +176,8 @@ function ensureDbExists() {
           "Bénéfice": 0,
           "Fournisseur": "",
           "Fourni price": 0,
-          "WHATSAPP": "https://wa.me/212661122334"
+          "WhatsApp Sent": "لا",
+          "WhatsApp Count": 0
         }
       ],
       purchases: [
@@ -304,7 +311,7 @@ async function autoPushToGoogleSheets(sheetName: string, userAccessToken?: strin
         "Order ID", "Order date", "Full name", "Phone", "City", "Region", 
         "Product name", "Product URL", "Variant price", "Total quantity", 
         "Total price", "Condition", "Livreur", "delivery", "prix d'achat", 
-        "Frais livraison", "Bénéfice", "Fournisseur", "Fourni price", "WHATSAPP"
+        "Frais livraison", "Bénéfice", "Fournisseur", "Fourni price", "WhatsApp Sent", "WhatsApp Count"
       ];
     } else if (sheetName === "Achat") {
       targetArray = db.purchases;
@@ -353,7 +360,7 @@ app.get("/api/get-sheet", (req, res) => {
         "Order ID", "Order date", "Full name", "Phone", "City", "Region", 
         "Product name", "Product URL", "Variant price", "Total quantity", 
         "Total price", "Condition", "Livreur", "delivery", "prix d'achat", 
-        "Frais livraison", "Bénéfice", "Fournisseur", "Fourni price", "WHATSAPP"
+        "Frais livraison", "Bénéfice", "Fournisseur", "Fourni price", "WhatsApp Sent", "WhatsApp Count"
       ];
     } else if (sheetName === "Achat") {
       targetArray = db.purchases || [];
@@ -383,6 +390,29 @@ app.get("/api/get-sheet", (req, res) => {
       dbFile: DB_FILE,
       isVercel: isVercel
     });
+  }
+});
+
+// Unified Fast Get All Sheets Endpoint (Retrieves local JSON data instantly)
+app.get("/api/get-all-sheets", (req, res) => {
+  try {
+    const db = readDb();
+    res.json({
+      success: true,
+      sales: db.sales || [],
+      purchases: db.purchases || [],
+      payments: db.payments || [],
+      expenses: db.expenses || [],
+      googleSheetsSettings: {
+        spreadsheetId: db.googleSheetsSettings?.spreadsheetId || "",
+        clientEmail: db.googleSheetsSettings?.clientEmail || "",
+        hasPrivateKey: !!db.googleSheetsSettings?.privateKey,
+        apiKey: db.googleSheetsSettings?.apiKey || ""
+      }
+    });
+  } catch (err: any) {
+    console.error("Error in get-all-sheets:", err);
+    res.status(500).json({ success: false, error: err.toString() });
   }
 });
 
@@ -460,12 +490,14 @@ app.post("/api/save-generic", async (req, res) => {
       userAccessToken = authHeader.substring(7);
     }
     
-    // Push the updated sheet to Google Sheets immediately and await completion for consistency
-    try {
-      await autoPushToGoogleSheets(sheetName, userAccessToken);
-    } catch (e) {
-      console.error("Auto-push to Google Sheets failed:", e);
-    }
+    // Push the updated sheet to Google Sheets in the background so API responds instantly!
+    autoPushToGoogleSheets(sheetName, userAccessToken)
+      .then(success => {
+        console.log(`Background auto-push success for ${sheetName}: ${success}`);
+      })
+      .catch(err => {
+        console.error(`Background auto-push failed for ${sheetName}:`, err);
+      });
     
     res.json({ success: true });
   } catch (err: any) {
@@ -513,11 +545,14 @@ app.post("/api/delete-generic", async (req, res) => {
         userAccessToken = authHeader.substring(7);
       }
       
-      try {
-        await autoPushToGoogleSheets(sheetName, userAccessToken);
-      } catch (e) {
-        console.error("Auto-push to Google Sheets failed for delete:", e);
-      }
+      // Push the updated sheet to Google Sheets in the background so API responds instantly!
+      autoPushToGoogleSheets(sheetName, userAccessToken)
+        .then(success => {
+          console.log(`Background auto-push success after delete for ${sheetName}: ${success}`);
+        })
+        .catch(err => {
+          console.error(`Background auto-push failed after delete for ${sheetName}:`, err);
+        });
       
       res.json({ success: true });
     } else {
@@ -566,7 +601,7 @@ app.post("/api/update-order-row", async (req, res) => {
     const numCols = [
       'Variant price', 'Total quantity', 'Total price', "prix d'achat", 
       'Frais livraison', 'Bénéfice', 'Fourni price', 'nombre', 
-      'Prix Unit', 'total', 'Prix de vente', 'Prix', 'Payment'
+      'Prix Unit', 'total', 'Prix de vente', 'Prix', 'Payment', 'WhatsApp Count'
     ];
     
     const rowObj = { ...currentArray[idx] };
@@ -592,11 +627,14 @@ app.post("/api/update-order-row", async (req, res) => {
       userAccessToken = authHeader.substring(7);
     }
     
-    try {
-      await autoPushToGoogleSheets(targetSheet, userAccessToken);
-    } catch (e) {
-      console.error("Auto-push to Google Sheets failed for update:", e);
-    }
+    // Push the updated sheet to Google Sheets in the background so API responds instantly!
+    autoPushToGoogleSheets(targetSheet, userAccessToken)
+      .then(success => {
+        console.log(`Background auto-push success after inline update for ${targetSheet}: ${success}`);
+      })
+      .catch(err => {
+        console.error(`Background auto-push failed after inline update for ${targetSheet}:`, err);
+      });
     
     res.json({ success: true, updatedColumns: cnt });
   } catch (err: any) {
@@ -683,7 +721,7 @@ async function getGoogleToken(clientEmail: string, privateKey: string): Promise<
     
   const jwt = `${signInput}.${signature}`;
   
-  const res = await fetch("https://oauth2.googleapis.com/token", {
+  const res = await robustFetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -701,76 +739,291 @@ async function getGoogleToken(clientEmail: string, privateKey: string): Promise<
   return tokenData.access_token;
 }
 
+// Fallback function utilizing Node's built-in https/http modules, bypassing undici engine completely if standard fetch fails
+async function httpsRequestFallback(urlStr: string, options: any = {}): Promise<any> {
+  return new Promise((resolve, reject) => {
+    try {
+      const parsedUrl = new URL(urlStr);
+      const isHttps = parsedUrl.protocol === "https:";
+      const lib = isHttps ? https : http;
+
+      // Extract and normalize headers
+      const headers: Record<string, string> = {};
+      if (options.headers) {
+        if (typeof options.headers.forEach === "function") {
+          options.headers.forEach((val: string, key: string) => {
+            headers[key] = val;
+          });
+        } else {
+          for (const [k, v] of Object.entries(options.headers)) {
+            if (v !== undefined && v !== null) {
+              headers[k] = String(v);
+            }
+          }
+        }
+      }
+
+      const reqOptions: http.RequestOptions = {
+        method: options.method || "GET",
+        headers: headers,
+      };
+
+      const req = lib.request(urlStr, reqOptions, (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => {
+          const buffer = Buffer.concat(chunks);
+          const text = buffer.toString("utf8");
+
+          resolve({
+            ok: res.statusCode ? (res.statusCode >= 200 && res.statusCode < 300) : false,
+            status: res.statusCode || 200,
+            statusText: res.statusMessage || "",
+            async text() {
+              return text;
+            },
+            async json() {
+              return JSON.parse(text);
+            }
+          });
+        });
+      });
+
+      req.on("error", (err) => {
+        reject(err);
+      });
+
+      if (options.body) {
+        if (typeof options.body === "string") {
+          req.write(options.body);
+        } else if (options.body instanceof URLSearchParams) {
+          req.write(options.body.toString());
+        } else {
+          req.write(typeof options.body === "object" ? JSON.stringify(options.body) : options.body);
+        }
+      }
+
+      req.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+// Robust Fetch wrapper with retries and a bulletproof HTTPS module fallback
+async function robustFetch(url: string, options: any = {}, retries = 2, delayMs = 500): Promise<any> {
+  let lastError: any = null;
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      return res;
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`[robustFetch] Standard fetch attempt ${attempt} failed for ${url}. Error: ${err.message || err.toString()}`);
+      if (attempt < retries) {
+        await new Promise(r => setTimeout(r, delayMs * attempt));
+      }
+    }
+  }
+
+  // Fall back to native Node.js HTTP/HTTPS module (bypasses any undici issues / local socket drops)
+  console.info(`[robustFetch] Fallback to native HTTP/HTTPS agent for: ${url}`);
+  try {
+    const res = await httpsRequestFallback(url, options);
+    return res;
+  } catch (err: any) {
+    console.error(`[robustFetch] Native fallback failed for ${url}: ${err.message || err.toString()}`);
+    throw lastError || err;
+  }
+}
+
+// Helper to parse Google Sheets / Google API error strings and return a beautifully explained friendly Arabic instruction
+function parseGoogleSheetsError(text: string, clientEmail: string, sheetRange: string): string {
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed.error) {
+      const errorObj = parsed.error;
+      const code = errorObj.code;
+      const status = errorObj.status;
+      const message = errorObj.message || "";
+
+      if (status === "PERMISSION_DENIED" || code === 403 || message.toLowerCase().includes("permission")) {
+        return `⚠️ خطأ في الصلاحيات والإذن (PERMISSION_DENIED):
+يرجى فتح ملف الـ Google Sheet ومشاركته مع البريد الإلكتروني لحساب الخدمة (Service Account) وتعيينه بصلاحية "محرر" (Editor).
+✉️ بريد حساب الخدمة الحالي هو:
+👉 ${clientEmail || "غير متوفر بالترتيب"}
+(ملاحظة: تأكد من تفعيل Google Sheets API في الكنسول وتفعيل مشاركة الملف)`;
+      }
+
+      if (status === "NOT_FOUND" || code === 404 || message.toLowerCase().includes("not found")) {
+        return `⚠️ ملف الشيت غير موجود (NOT_FOUND):
+يرجى التأكد من كتابة معرف ورقة العمل (Spreadsheet ID) بدقة وبشكل صحيح في صفحة الإعدادات باللوحة. معرف الشيت الحالي غير صحيح أو تم حذفه من جوجل درايف.`;
+      }
+
+      if (code === 400 || message.toLowerCase().includes("unable to parse range") || message.toLowerCase().includes("range")) {
+        return `⚠️ لم يتم العثور على ورقة العمل باسم "${sheetRange}" داخل الشيت:
+يرجى التأكد من وجود صفحة داخل ملف الشيت الرئيسي تحمل هذا الاسم تماماً بنفس الأحرف وعلامات الترقيم (مثال: "Youcan-Orders" أو "Achat" أو "Payments" أو "Expenses").`;
+      }
+
+      return `خطأ Google API (${code || status}): ${message}`;
+    }
+  } catch (err) {
+    // Treat as raw text
+  }
+
+  // Fallback checks on raw message
+  if (text.includes("permission") || text.includes("403")) {
+    return `⚠️ خطأ في الصلاحيات والإذن (PERMISSION_DENIED):
+يرجى فتح ملف الـ Google Sheet ومشاركته مع البريد الإلكتروني لحساب الخدمة (Service Account) وتعيينه بصلاحية "محرر" (Editor).
+✉️ بريد حساب الخدمة هو: ${clientEmail}`;
+  }
+  if (text.includes("not found") || text.includes("404")) {
+    return `⚠️ لم يتم العثور على ملف Google Sheet (NOT_FOUND). يرجى التأكد من صحة معرف ملف الشيت بالإعدادات.`;
+  }
+  if (text.includes("invalid_grant") || text.includes("JWT")) {
+    return `⚠️ مفتاح حساب الخدمة (Service Account Private Key) أو البريد الإلكتروني غير صحيح أو منتهي الصلاحية. يرجى مراجعة بيانات الاعتماد والتأكد من نسخ المفتاح كاملاً بـ "-----BEGIN PRIVATE KEY-----" و "-----END PRIVATE KEY-----".`;
+  }
+
+  return text;
+}
+
 // Fetch values from Google Sheet range
 async function fetchValuesFromSheet(spreadsheetId: string, sheetRange: string, settings: any, userAccessToken?: string): Promise<any[][] | null> {
-  let url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetRange)}?valueRenderOption=FORMATTED_VALUE`;
-  let headers: HeadersInit = {};
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetRange)}?valueRenderOption=FORMATTED_VALUE`;
   
-  if (userAccessToken) {
-    headers["Authorization"] = `Bearer ${userAccessToken}`;
-  } else if (settings.clientEmail && settings.privateKey) {
-    const token = await getGoogleToken(settings.clientEmail, settings.privateKey);
-    headers["Authorization"] = `Bearer ${token}`;
-  } else if (settings.apiKey) {
-    url += `&key=${settings.apiKey}`;
-  } else {
-    throw new Error("يتطلب جلب البيانات تفعيل تسجيل الدخول بـ Google أو إدخال حساب خدمة Google Service Account.");
+  // 1. Try with userAccessToken if provided and valid
+  if (userAccessToken && userAccessToken !== "null" && userAccessToken !== "undefined" && userAccessToken.trim() !== "") {
+    try {
+      const headers: HeadersInit = { "Authorization": `Bearer ${userAccessToken}` };
+      const res = await robustFetch(url, { headers });
+      if (res.ok) {
+        const data = await res.json() as { values?: any[][] };
+        return data.values || null;
+      } else {
+        const text = await res.text();
+        console.warn(`Could not fetch ${sheetRange} using user access token (status: ${res.status}). Error: ${text}. Falling back to Service Account/API key if available.`);
+      }
+    } catch (err: any) {
+      console.warn(`Error trying user access token for ${sheetRange}: ${err.toString()}. Falling back to Service Account.`);
+    }
   }
-  
-  const res = await fetch(url, { headers });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`تعذر جلب البيانات من Spreadsheet: ${text}`);
+
+  // 2. Try with Service Account Credentials
+  if (settings.clientEmail && settings.privateKey) {
+    try {
+      const token = await getGoogleToken(settings.clientEmail, settings.privateKey);
+      const headers: HeadersInit = { "Authorization": `Bearer ${token}` };
+      const res = await robustFetch(url, { headers });
+      if (res.ok) {
+        const data = await res.json() as { values?: any[][] };
+        return data.values || null;
+      } else {
+        const text = await res.text();
+        const friendlyError = parseGoogleSheetsError(text, settings.clientEmail, sheetRange);
+        throw new Error(friendlyError);
+      }
+    } catch (saErr: any) {
+      console.error(`Service Account fetch failed for ${sheetRange}:`, saErr);
+      const msg = saErr.message || saErr.toString();
+      if (msg.includes("⚠️") || msg.includes("خطأ")) {
+        throw saErr;
+      }
+      const friendlyError = parseGoogleSheetsError(msg, settings.clientEmail, sheetRange);
+      throw new Error(`تعذر جلب البيانات (حساب الخدمة):\n${friendlyError}`);
+    }
   }
-  
-  const data = await res.json() as { values?: any[][] };
-  return data.values || null;
+
+  // 3. Try with API Key
+  if (settings.apiKey) {
+    try {
+      const apiKeyUrl = `${url}&key=${encodeURIComponent(settings.apiKey)}`;
+      const res = await robustFetch(apiKeyUrl);
+      if (res.ok) {
+        const data = await res.json() as { values?: any[][] };
+        return data.values || null;
+      } else {
+        const text = await res.text();
+        const friendlyError = parseGoogleSheetsError(text, settings.clientEmail || "", sheetRange);
+        throw new Error(friendlyError);
+      }
+    } catch (apiErr: any) {
+      console.error(`API Key fetch failed for ${sheetRange}:`, apiErr);
+      const msg = apiErr.message || apiErr.toString();
+      if (msg.includes("⚠️") || msg.includes("خطأ")) {
+        throw apiErr;
+      }
+      const friendlyError = parseGoogleSheetsError(msg, settings.clientEmail || "", sheetRange);
+      throw new Error(`تعذر جلب البيانات (مفتاح API):\n${friendlyError}`);
+    }
+  }
+
+  throw new Error("يتطلب جلب البيانات تفعيل تسجيل الدخول بـ Google أو إدخال حساب خدمة Google Service Account.");
 }
 
 // Write (Update) values to Google Sheet range
 async function writeValuesToSheet(spreadsheetId: string, sheetName: string, values: any[][], settings: any, userAccessToken?: string): Promise<boolean> {
-  let token = userAccessToken;
+  const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A1:Z2500:clear`;
+  const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}?valueInputOption=USER_ENTERED`;
   
-  if (!token) {
-    if (settings.clientEmail && settings.privateKey) {
-      token = await getGoogleToken(settings.clientEmail, settings.privateKey);
-    } else {
-      throw new Error("يتطلب تحديث البيانات (Push) تفعيل تسجيل الدخول بـ Google أو إدخال حساب الخدمة Google Service Account.");
+  const tryWriteWithToken = async (authToken: string): Promise<boolean> => {
+    try {
+      await robustFetch(clearUrl, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${authToken}` }
+      });
+    } catch (clearErr) {
+      console.warn("Ignored buffer clear error:", clearErr);
+    }
+
+    const res = await robustFetch(updateUrl, {
+      method: "PUT",
+      headers: {
+        "Authorization": `Bearer ${authToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        range: sheetName,
+        majorDimension: "ROWS",
+        values: values
+      })
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      const friendlyError = parseGoogleSheetsError(text, settings.clientEmail || "", sheetName);
+      throw new Error(friendlyError);
+    }
+    return true;
+  };
+
+  // 1. Try with userAccessToken if provided
+  if (userAccessToken && userAccessToken !== "null" && userAccessToken !== "undefined" && userAccessToken.trim() !== "") {
+    try {
+      const success = await tryWriteWithToken(userAccessToken);
+      if (success) return true;
+    } catch (err: any) {
+      console.warn(`Could not update Sheets using user access token. Error: ${err.message || err}. Falling back to Service Account.`);
     }
   }
-  
-  // Clear the existing items up to 2500 entries to avoid ghost remnants
-  try {
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A1:Z2500:clear`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${token}`
+
+  // 2. Try with Service Account
+  if (settings.clientEmail && settings.privateKey) {
+    try {
+      const token = await getGoogleToken(settings.clientEmail, settings.privateKey);
+      return await tryWriteWithToken(token);
+    } catch (err: any) {
+      console.error("Service Account write failed:", err);
+      const msg = err.message || err.toString();
+      if (msg.includes("⚠️") || msg.includes("خطأ")) {
+        throw err;
       }
-    });
-  } catch (clearErr) {
-    console.error("Ignored buffer clear error:", clearErr);
+      const friendlyError = parseGoogleSheetsError(msg, settings.clientEmail, sheetName);
+      throw new Error(`فشل تحديث خلايا Google Sheets:\n${friendlyError}`);
+    }
   }
-  
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}?valueInputOption=USER_ENTERED`;
-  const res = await fetch(url, {
-    method: "PUT",
-    headers: {
-      "Authorization": `Bearer ${token}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      range: sheetName,
-      majorDimension: "ROWS",
-      values: values
-    })
-  });
-  
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`فشل تحديث خلايا Google Sheets: ${text}`);
-  }
-  
-  return true;
+
+  throw new Error("يتطلب تحديث البيانات (Push) تفعيل تسجيل الدخول بـ Google أو إدخال حساب الخدمة Google Service Account.");
 }
 
 // REST ENDPOINTS FOR GOOGLE SHEETS SETUP
@@ -827,7 +1080,7 @@ function parseSheetRowsToObjects(values: any[][], expectedHeaders: string[]): an
   const numCols = [
     'Variant price', 'Total quantity', 'Total price', "prix d'achat", 
     'Frais livraison', 'Bénéfice', 'Fourni price', 'nombre', 
-    'Prix Unit', 'total', 'Payment', 'Prix de vente', 'Prix'
+    'Prix Unit', 'total', 'Payment', 'Prix de vente', 'Prix', 'WhatsApp Count'
   ];
   
   for (let r = 1; r < values.length; r++) {
@@ -898,7 +1151,7 @@ app.post("/api/google-sheets/sync-pull", async (req, res) => {
       "Order ID", "Order date", "Full name", "Phone", "City", "Region", 
       "Product name", "Product URL", "Variant price", "Total quantity", 
       "Total price", "Condition", "Livreur", "delivery", "prix d'achat", 
-      "Frais livraison", "Bénéfice", "Fournisseur", "Fourni price", "WHATSAPP"
+      "Frais livraison", "Bénéfice", "Fournisseur", "Fourni price", "WhatsApp Sent", "WhatsApp Count"
     ];
     const purchasesHeaders = ["ID", "date", "nombre", "Produit", "Code", "Prix Unit", "total", "Fournisseur", "Prix de vente"];
     const paymentsHeaders = ["ID", "date", "Payment", "Fournisseur"];
@@ -1016,7 +1269,7 @@ app.post("/api/google-sheets/sync-push", async (req, res) => {
       "Order ID", "Order date", "Full name", "Phone", "City", "Region", 
       "Product name", "Product URL", "Variant price", "Total quantity", 
       "Total price", "Condition", "Livreur", "delivery", "prix d'achat", 
-      "Frais livraison", "Bénéfice", "Fournisseur", "Fourni price", "WHATSAPP"
+      "Frais livraison", "Bénéfice", "Fournisseur", "Fourni price", "WhatsApp Sent", "WhatsApp Count"
     ];
     const purchasesHeaders = ["ID", "date", "nombre", "Produit", "Code", "Prix Unit", "total", "Fournisseur", "Prix de vente"];
     const paymentsHeaders = ["ID", "date", "Payment", "Fournisseur"];

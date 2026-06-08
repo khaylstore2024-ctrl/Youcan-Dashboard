@@ -19,10 +19,12 @@ import { PaymentsTab } from "./components/PaymentsTab";
 import { ExpensesTab } from "./components/ExpensesTab";
 import { ReportsTab } from "./components/ReportsTab";
 import { SettingsTab } from "./components/SettingsTab";
+import { NoPurchaseTab } from "./components/NoPurchaseTab";
 import { MobileView } from "./components/MobileView";
 import { SaleAddModal, PurchaseAddModal, GenericModal } from "./components/Modals";
 import { ConfirmationDialog } from "./components/ConfirmationDialog";
 import { LoginPage } from "./components/LoginPage";
+import { ProductImageMapperModal } from "./components/ProductImageMapperModal";
 
 import { 
   ChevronLeft,
@@ -47,6 +49,8 @@ import {
   Truck,
   ClipboardCheck,
   FileQuestion,
+  PackageCheck,
+  UserX,
   LogOut
 } from "lucide-react";
 
@@ -55,17 +59,27 @@ export default function App() {
     return localStorage.getItem("is_app_authenticated") === "true";
   });
 
+  // Global Font State
+  const [currentFont, setCurrentFont] = useState<string>(() => {
+    return localStorage.getItem("app_global_font") || "Cairo";
+  });
+
+  const handleFontChange = (font: string) => {
+    setCurrentFont(font);
+    localStorage.setItem("app_global_font", font);
+  };
+
   // Device View Simulator mode: "desktop" or "mobile"
   const [deviceMode, setDeviceMode] = useState<"desktop" | "mobile">("desktop");
   
   // Active page selector for DESKTOP mode
-  const [activeTab, setActiveTab] = useState<"sales" | "purchases" | "payments" | "expenses" | "reports" | "settings">("sales");
+  const [activeTab, setActiveTab] = useState<"sales" | "purchases" | "payments" | "expenses" | "reports" | "settings" | "no_purchase">("sales");
 
   // Sidebar collapsed state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
 
   // Quick preset filter for SalesTab
-  const [salesPreset, setSalesPreset] = useState<"all" | "delivery_requests" | "delivery_status" | "no_status">("all");
+  const [salesPreset, setSalesPreset] = useState<"all" | "delivery_requests" | "delivery_status" | "no_status" | "delivered_parcels">("all");
 
   // Database State
   const [data, setData] = useState<AppData>({
@@ -83,6 +97,7 @@ export default function App() {
   const [isAddPurchaseOpen, setIsAddPurchaseOpen] = useState(false);
   const [isAddPaymentOpen, setIsAddPaymentOpen] = useState(false);
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
+  const [isProductMapperOpen, setIsProductMapperOpen] = useState(false);
 
   // Edit / Details targeting states
   const [editingSale, setEditingSale] = useState<Order | null>(null);
@@ -113,69 +128,71 @@ export default function App() {
     }, 4000);
   };
 
-  // Sync Database from API proxy endpoints
-  const syncDatabase = async () => {
-    setIsLoading(true);
+  // Sync Database instantly from the local speed-indexed JSON cache endpoint, and query Google Sheets quietly in the background.
+  const loadLocalData = async (showSpinner = false) => {
+    if (showSpinner) setIsLoading(true);
     try {
-      // 1. Try to automated sync-pull from Google Sheets first to retrieve any external edits or new entries
-      const token = sessionStorage.getItem("google_sheets_oauth_token");
-      const pullHeaders: Record<string, string> = {};
-      if (token) {
-        pullHeaders["Authorization"] = `Bearer ${token}`;
-      }
-      
-      let pulledSuccessfully = false;
-      try {
-        const pullRes = await fetch("/api/google-sheets/sync-pull", {
-          method: "POST",
-          headers: pullHeaders
-        });
-        const pullData = await pullRes.json();
-        if (pullData.success) {
-          console.log("Successfully auto-pulled live Google Sheets updates on load");
-          pulledSuccessfully = true;
-        }
-      } catch (pullErr) {
-        console.warn("Auto-pull live updates skipped or unconfigured:", pullErr);
-      }
-
-      // 2. Load the synchronized data from the local database
-      const [salesRes, purchasesRes, paymentsRes, expensesRes] = await Promise.all([
-        fetchSheetData("Youcan-Orders"),
-        fetchSheetData("Achat"),
-        fetchSheetData("Payments"),
-        fetchSheetData("Expenses")
-      ]);
-
-      if (salesRes.success && purchasesRes.success && paymentsRes.success && expensesRes.success) {
-        const cleanedSales = (salesRes.rows || []).map((sale: any) => {
+      const res = await fetch("/api/get-all-sheets");
+      const result = await res.json();
+      if (result.success) {
+        const cleanedSales = (result.sales || []).map((sale: any) => {
           const rawL = sale.Livreur || "";
           const containsCathedis = rawL.toString().toUpperCase().includes("CATHEDIS");
           return {
             ...sale,
-            Livreur: containsCathedis ? "CATHEDIS" : ""
+            Livreur: containsCathedis ? "CATHEDIS" : rawL
           };
         });
 
         setData({
           sales: cleanedSales,
-          purchases: purchasesRes.rows || [],
-          payments: paymentsRes.rows || [],
-          expenses: expensesRes.rows || []
+          purchases: result.purchases || [],
+          payments: result.payments || [],
+          expenses: result.expenses || []
         });
-        
-        if (pulledSuccessfully) {
-          showToast("تم تحديث ومزامنة البيانات مع Google Sheets بنجاح!", "success");
-        } else {
-          showToast("تم تحميل البيانات من قاعدة البيانات المحلية بنجاح.", "info");
-        }
+        return true;
       } else {
-        showToast("حدث خطأ جزئى أثناء مزامنة البيانات من السيرفر.", "error");
+        showToast(result.error || "حدث خطأ أثناء تحميل البيانات المحلية.", "error");
+        return false;
       }
     } catch (err: any) {
-      showToast(`فشل المزامنة: ${err.toString()}`, "error");
+      showToast(`فشل قراءة الملف المحلي: ${err.toString()}`, "error");
+      return false;
     } finally {
-      setIsLoading(false);
+      if (showSpinner) setIsLoading(false);
+    }
+  };
+
+  const syncGoogleSheetsInBackground = async () => {
+    try {
+      const token = sessionStorage.getItem("google_sheets_oauth_token");
+      const pullHeaders: Record<string, string> = {};
+      if (token) {
+        pullHeaders["Authorization"] = `Bearer ${token}`;
+      }
+
+      const pullRes = await fetch("/api/google-sheets/sync-pull", {
+        method: "POST",
+        headers: pullHeaders
+      });
+      const pullData = await pullRes.json();
+      if (pullData.success) {
+        console.log("Silent remote Google Sheets pull completed.");
+        // Quietly load the newly synchronized data into state without user-visible loader interruption
+        await loadLocalData(false);
+        showToast("مزامنة الخلفية: تم جلب التحديثات السحابية بنجاح 🟢", "success");
+      }
+    } catch (err) {
+      console.warn("Background sheet auto-pull skipped or unconfigured:", err);
+    }
+  };
+
+  const syncDatabase = async () => {
+    // 1. Rapidly charge database arrays from local server-side JSON (extremely fast, ~20ms)
+    const localLoaded = await loadLocalData(true);
+    if (localLoaded) {
+      // 2. Schedule the heavy sheets sync as a non-blocking background task
+      syncGoogleSheetsInBackground();
     }
   };
 
@@ -190,8 +207,12 @@ export default function App() {
   }, [data.sales]);
 
   const livreurOptions = React.useMemo(() => {
-    return LIVREURS;
-  }, []);
+    const list = Array.from(new Set([
+      ...LIVREURS,
+      ...data.sales.map(s => s.Livreur).filter(Boolean)
+    ])) as string[];
+    return list;
+  }, [data.sales]);
 
   const productOptions = React.useMemo(() => {
     const list = Array.from(new Set([
@@ -348,27 +369,45 @@ export default function App() {
     });
   };
 
-  // Direct Inline Updates (for immediate status modifications without modal popup)
+  // Direct Inline Updates (fully optimistic, responsive background tracking)
   const handleInlineStatusUpdate = async (rowNum: number, updates: any) => {
+    // 1. Keep track of current states in case we need to roll back
+    let previousSaleState: any = null;
+    
+    // 2. Perform INSTANT optimistic local state update for zero-lag UI response
+    setData(prev => {
+      const freshSales = prev.sales.map(s => {
+        if (s._rowNum === rowNum) {
+          previousSaleState = { ...s };
+          return { ...s, ...updates };
+        }
+        return s;
+      });
+      return { ...prev, sales: freshSales };
+    });
+
+    // 3. Trigger remote update completely in the background
     try {
       const res = await updateOrderRow("Youcan-Orders", rowNum, updates);
-      if (res.success) {
-        // Optimistic local state update to preserve page positioning and table states
-        setData(prev => {
-          const freshSales = prev.sales.map(s => {
-            if (s._rowNum === rowNum) {
-              return { ...s, ...updates };
-            }
-            return s;
+      if (!res.success) {
+        // Rollback state instantly
+        if (previousSaleState) {
+          setData(prev => {
+            const rolledBackSales = prev.sales.map(s => s._rowNum === rowNum ? previousSaleState : s);
+            return { ...prev, sales: rolledBackSales };
           });
-          return { ...prev, sales: freshSales };
-        });
-        showToast("تم تحديث حالة الشحنة تلقائياً وحساب الفروقات المالية والمصاريف بسلاسة", "success");
-      } else {
-        showToast(res.error || "فشل لتحديث الحالات", "error");
+        }
+        showToast(res.error || "فشل حفظ التحديث في الخلفية", "error");
       }
     } catch (err: any) {
-      showToast(err.toString(), "error");
+      // Rollback on exception
+      if (previousSaleState) {
+        setData(prev => {
+          const rolledBackSales = prev.sales.map(s => s._rowNum === rowNum ? previousSaleState : s);
+          return { ...prev, sales: rolledBackSales };
+        });
+      }
+      showToast("خطأ اتصال: لم يتم الحفظ بالخلفية " + err.toString(), "error");
     }
   };
 
@@ -387,6 +426,12 @@ export default function App() {
     // Delivered Revenue Sum
     const totalRevenueSum = deliveredSalesList.reduce((acc, s) => acc + (s["Total price"] || 0), 0);
 
+    // Sum of all sales "Total price"
+    const totalSalesPriceSum = data.sales.reduce((acc, s) => acc + (s["Total price"] || 0), 0);
+
+    // Sum of all sales "Bénéfice"
+    const totalBeneficeSum = data.sales.reduce((acc, s) => acc + (s["Bénéfice"] || 0), 0);
+
     // Delivered profit / benefit (Bénéfice)
     const netProfitSum = deliveredSalesList.reduce((acc, s) => acc + (s["Bénéfice"] || 0), 0);
     
@@ -401,16 +446,44 @@ export default function App() {
     // Average Order Value (AOV) based on delivered orders
     const averageOrderValue = deliveredCount > 0 ? totalRevenueSum / deliveredCount : 0;
 
+    // Cost Per Sale = Total Expenses / Delivered Parcels Count
+    const costPerSale = deliveredCount > 0 ? totalExpenses / deliveredCount : 0;
+
     return {
       totalSales,
       deliveredCount,
       deliveryRateExact,
       totalRevenueSum,
+      totalSalesPriceSum,
+      totalBeneficeSum,
+      totalExpenses,
       trueNetProjectProfit,
       tourDeliveryInRoute,
-      averageOrderValue
+      averageOrderValue,
+      costPerSale
     };
   }, [data]);
+
+  const pendingOrdersCount = React.useMemo(() => {
+    return data.sales.filter(sale => {
+      const cond = sale.Condition ? sale.Condition.trim() : "";
+      return !cond || cond.toLowerCase() === "waiting for confirmation" || cond.toLowerCase() === "pending";
+    }).length;
+  }, [data.sales]);
+
+  const noPurchaseCount = React.useMemo(() => {
+    return data.sales.filter(sale => {
+      const condition = sale.Condition ? sale.Condition.trim() : "";
+      const delivery = sale.delivery ? sale.delivery.trim() : "";
+
+      const isCancelledCondition = condition.toLowerCase() === "anule" || condition.toLowerCase() === "annulé";
+      const isNoResponse = condition.toLowerCase() === "ne repond pas" || condition.toLowerCase() === "ne répond pas" || condition.toLowerCase() === "call again";
+      const isReturnedDelivery = delivery.toLowerCase() === "retour" || delivery.toLowerCase() === "annuler" || delivery.toLowerCase() === "annulé sur place" || delivery.toLowerCase() === "annulé au téléphone";
+      const isUnreachableDelivery = delivery.toLowerCase() === "client injoignable";
+
+      return isCancelledCondition || isNoResponse || isReturnedDelivery || isUnreachableDelivery;
+    }).length;
+  }, [data.sales]);
 
   if (!isAuthenticated) {
     return (
@@ -424,7 +497,12 @@ export default function App() {
   }
 
   return (
-    <div className="bg-[#070a13] text-[#f3f4f6] min-h-screen flex flex-col font-sans select-none overflow-x-hidden antialiased pb-12" dir="rtl">
+    <div className="bg-[#070a13] text-[#f3f4f6] h-screen flex flex-col font-sans select-none overflow-hidden antialiased" dir="rtl">
+      <style>{`
+        * {
+          font-family: '${currentFont}', 'Cairo', 'Tajawal', 'Inter', sans-serif !important;
+        }
+      `}</style>
       
       {/* 1. TOP SIMULATOR VIEW SWITCHER HUD (Fidelity constraint) */}
       <div className="bg-[#0a1020]/90 border-b border-white/5 px-6 py-2 flex items-center justify-between sticky top-0 z-50 backdrop-blur-md select-none">
@@ -461,6 +539,15 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Real-time local computer folder image product linking tool */}
+          <button 
+            onClick={() => setIsProductMapperOpen(true)}
+            className="p-1 px-3 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 rounded-lg text-[11px] font-bold flex items-center gap-1.5 border border-indigo-500/20 transition-all cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
+            <span>ربط وتعيين صور المنتجات 📷</span>
+          </button>
+
           <button 
             onClick={syncDatabase} 
             disabled={isLoading}
@@ -506,10 +593,10 @@ export default function App() {
         </div>
       ) : (
         /* Render main desktop layout with left/right reverse-rtl bar */
-        <div className="flex-1 flex flex-row h-[100%] overflow-hidden">
+        <div className="flex-1 flex flex-row min-h-0 overflow-hidden">
           
           {/* A. SIDEBAR COMPONENT (Section 5.3) */}
-          <aside className={`${isSidebarCollapsed ? "w-20" : "w-64"} bg-[#0a1020]/80 border-l border-white/5 flex flex-col justify-between shrink-0 select-none transition-all duration-300 ease-in-out`}>
+          <aside className={`${isSidebarCollapsed ? "w-20" : "w-64"} bg-[#0a1020]/80 border-l border-white/5 flex flex-col justify-between shrink-0 select-none transition-all duration-300 ease-in-out h-full overflow-y-auto`}>
             
             {/* Top portion */}
             <div>
@@ -542,7 +629,7 @@ export default function App() {
                     setSalesPreset("all");
                   }}
                   title="المبيعات (Youcan Orders)"
-                  className={`w-full flex items-center ${isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-3"} p-3 text-xs font-bold font-sans rounded-xl border transition-all ${
+                  className={`w-full flex items-center ${isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-3"} p-3 text-xs font-bold font-sans rounded-xl border transition-all relative ${
                     activeTab === "sales" && salesPreset === "all"
                       ? "bg-blue-600/10 text-blue-400 border-blue-500/15"
                       : "text-gray-400 border-transparent hover:bg-white/5"
@@ -550,17 +637,47 @@ export default function App() {
                 >
                   <LayoutGrid className="w-5 h-5 shrink-0" />
                   {!isSidebarCollapsed && <span className="truncate">المبيعات (Youcan Orders)</span>}
+                  
+                  {pendingOrdersCount > 0 && (
+                    isSidebarCollapsed ? (
+                      <span className="absolute top-2 left-2 flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                      </span>
+                    ) : (
+                      <span className="ms-auto bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] px-2 py-0.5 rounded-full font-mono font-bold animate-pulse">
+                        {pendingOrdersCount}
+                      </span>
+                    )
+                  )}
                 </button>
 
                 {/* Quick Preset Buttons (Filters) */}
                 <div className="space-y-1 my-1.5 pr-2 border-r border-white/5">
-                  {/* Button 1: طلبات التوصيل */}
+                  {/* Button 1: بدون تاكيد */}
+                  <button
+                    onClick={() => {
+                      setActiveTab("sales");
+                      setSalesPreset("no_status");
+                    }}
+                    title="بدون تاكيد"
+                    className={`w-full flex items-center ${isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-3"} py-2 px-2.5 text-[11px] font-bold font-sans rounded-lg border transition-all ${
+                      activeTab === "sales" && salesPreset === "no_status"
+                        ? "bg-purple-500/10 text-purple-400 border-purple-500/25"
+                        : "text-gray-400 border-transparent hover:bg-white/5"
+                    }`}
+                  >
+                    <FileQuestion className="w-4 h-4 shrink-0 text-purple-400" />
+                    {!isSidebarCollapsed && <span className="truncate">بدون تاكيد</span>}
+                  </button>
+
+                  {/* Button 2: طلبات الشحن */}
                   <button
                     onClick={() => {
                       setActiveTab("sales");
                       setSalesPreset("delivery_requests");
                     }}
-                    title="طلبات التوصيل"
+                    title="طلبات الشحن"
                     className={`w-full flex items-center ${isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-3"} py-2 px-2.5 text-[11px] font-bold font-sans rounded-lg border transition-all ${
                       activeTab === "sales" && salesPreset === "delivery_requests"
                         ? "bg-amber-500/10 text-amber-400 border-amber-500/25"
@@ -568,10 +685,10 @@ export default function App() {
                     }`}
                   >
                     <Truck className="w-4 h-4 shrink-0 text-amber-500" />
-                    {!isSidebarCollapsed && <span className="truncate">طلبات التوصيل</span>}
+                    {!isSidebarCollapsed && <span className="truncate">طلبات الشحن</span>}
                   </button>
 
-                  {/* Button 2: حاله التسليم */}
+                  {/* Button 3: حاله التسليم */}
                   <button
                     onClick={() => {
                       setActiveTab("sales");
@@ -588,21 +705,21 @@ export default function App() {
                     {!isSidebarCollapsed && <span className="truncate">حاله التسليم</span>}
                   </button>
 
-                  {/* Button 3: بدون حاله */}
+                  {/* Button 4: الطرود المسلمة */}
                   <button
                     onClick={() => {
                       setActiveTab("sales");
-                      setSalesPreset("no_status");
+                      setSalesPreset("delivered_parcels");
                     }}
-                    title="بدون حاله"
+                    title="الطرود المسلمة"
                     className={`w-full flex items-center ${isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-3"} py-2 px-2.5 text-[11px] font-bold font-sans rounded-lg border transition-all ${
-                      activeTab === "sales" && salesPreset === "no_status"
-                        ? "bg-purple-500/10 text-purple-400 border-purple-500/25"
+                      activeTab === "sales" && salesPreset === "delivered_parcels"
+                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/25"
                         : "text-gray-400 border-transparent hover:bg-white/5"
                     }`}
                   >
-                    <FileQuestion className="w-4 h-4 shrink-0 text-purple-400" />
-                    {!isSidebarCollapsed && <span className="truncate">بدون حاله</span>}
+                    <PackageCheck className="w-4 h-4 shrink-0 text-emerald-400" />
+                    {!isSidebarCollapsed && <span className="truncate">الطرود المسلمة</span>}
                   </button>
                 </div>
 
@@ -659,6 +776,32 @@ export default function App() {
                 </button>
 
                 <button
+                  onClick={() => setActiveTab("no_purchase")}
+                  title="عملاء لم يشتروا (WhatsApp)"
+                  className={`w-full flex items-center ${isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-3"} p-3 text-xs font-bold font-sans rounded-xl border transition-all relative ${
+                    activeTab === "no_purchase"
+                      ? "bg-blue-600/10 text-blue-400 border-blue-500/15"
+                      : "text-gray-400 border-transparent hover:bg-white/5"
+                  }`}
+                >
+                  <UserX className="w-5 h-5 shrink-0" />
+                  {!isSidebarCollapsed && <span className="truncate">عملاء لم يشتروا (WhatsApp)</span>}
+                  
+                  {noPurchaseCount > 0 && (
+                    isSidebarCollapsed ? (
+                      <span className="absolute top-2 left-2 flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                      </span>
+                    ) : (
+                      <span className="ms-auto bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[10px] px-2 py-0.5 rounded-full font-mono font-bold animate-pulse">
+                        {noPurchaseCount}
+                      </span>
+                    )
+                  )}
+                </button>
+
+                <button
                   onClick={() => setActiveTab("settings")}
                   title="إعدادات النظام والتهيئة"
                   className={`w-full flex items-center ${isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-3"} p-3 text-xs font-bold font-sans rounded-xl border transition-all ${
@@ -683,7 +826,7 @@ export default function App() {
           </aside>
 
           {/* B. MAIN INTERACTIVE CONTENT AREA */}
-          <main className="flex-1 flex flex-col px-8 py-6 select-none max-w-full overflow-hidden">
+          <main className="flex-1 flex flex-col px-8 py-6 select-none max-w-full overflow-y-auto pb-16">
             
             {/* Header Title dashboard */}
             <div className="flex items-center justify-between mb-8 select-none">
@@ -695,6 +838,7 @@ export default function App() {
                   {activeTab === "payments" && "سجل الدفعات المستحقة والمصروفة"}
                   {activeTab === "expenses" && "إدارة أعباء المشروع والمصاريف"}
                   {activeTab === "reports" && "التقارير التحليلية والمؤشرات"}
+                  {activeTab === "no_purchase" && "متابعة وإعادة استهداف العملاء (لم يشتروا)"}
                   {activeTab === "settings" && "تكامل خلايا العمل والربط"}
                 </h1>
               </div>
@@ -708,18 +852,55 @@ export default function App() {
               </div>
             </div>
 
-            {/* C. 5 KPI STATS GRID VIEW */}
+            {/* C. 6 KPI STATS GRID VIEW */}
             {activeTab === "sales" && (
-              <div className="grid grid-cols-2 lg:grid-cols-5 gap-6 mb-8" id="sales-kpi-row">
-                {/* HUD Card 1: Total volume transactions */}
+              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-6 mb-8" id="sales-kpi-row">
+                {/* Card 1: إجمالي الطلبات ونسبة التوصيل */}
                 <div className="bg-[#111930]/60 border border-white/5 p-5 rounded-2xl relative overflow-hidden glass-effect">
-                  <div className="absolute top-0 left-0 right-0 h-1 bg-blue-500"></div>
-                  <div className="text-gray-400 text-xs font-semibold mb-1">إجمالي المبيعات بالملف</div>
-                  <div className="text-2xl font-black font-mono tracking-tight text-white">{statsOverview.totalSales} طلبات</div>
-                  <div className="mt-2 text-[10px] text-gray-500">شامل المعلقة والملغاة والمرتقب شحنها</div>
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-indigo-500"></div>
+                  <div className="text-gray-400 text-xs font-semibold mb-1">إجمالي الطلبات والتوصيل</div>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="text-2xl font-black font-mono tracking-tight text-white" title="إجمالي طلبات الملف">
+                      {statsOverview.totalSales} <span className="text-xs font-normal text-gray-400">طلب</span>
+                    </span>
+                    <span className="text-lg font-black font-mono text-indigo-400" title="نسبة التوصيل الناجح">
+                      {statsOverview.deliveryRateExact.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="mt-2 text-[10px] text-gray-400 flex justify-between items-center">
+                    <span>
+                      المسلّمة: <span className="text-emerald-400 font-bold">{statsOverview.deliveredCount}</span>
+                    </span>
+                    <span className="text-gray-500">جاهز للتسليم في الملف</span>
+                  </div>
+                  
+                  {/* Progress bar strip */}
+                  <div className="mt-3 w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
+                    <div className="bg-indigo-500 h-full rounded-full transition-all duration-1000" style={{ width: `${statsOverview.deliveryRateExact}%` }}></div>
+                  </div>
                 </div>
 
-                {/* HUD Card 2: Absolute net Profit calculation strictly according to Section 4.2 */}
+                {/* Card 2: مجموع مبيعات الملف */}
+                <div className="bg-[#111930]/60 border border-white/5 p-5 rounded-2xl relative overflow-hidden glass-effect">
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-amber-500"></div>
+                  <div className="text-gray-400 text-xs font-semibold mb-1">مجموع مبيعات الملف</div>
+                  <div className="text-2xl font-black font-mono tracking-tight text-amber-400">
+                    {formatCurrency(statsOverview.totalSalesPriceSum)}
+                  </div>
+                  <div className="mt-2 text-[10px] text-gray-500">مجموع قيم عمود Total price بالكامل</div>
+                </div>
+
+                {/* Card 3: مجموع أرباح الملف */}
+                <div className="bg-[#111930]/60 border border-white/5 p-5 rounded-2xl relative overflow-hidden glass-effect">
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-[#ec4899]"></div>
+                  <div className="text-gray-400 text-xs font-semibold mb-1">مجموع أرباح الملف</div>
+                  <div className="text-2xl font-black font-mono tracking-tight text-rose-400">
+                    {formatCurrency(statsOverview.totalBeneficeSum)}
+                  </div>
+                  <div className="mt-2 text-[10px] text-gray-500">مجموع قيم عمود Bénéfice بالكامل</div>
+                </div>
+
+                {/* Card 4: صافي الأرباح العـام */}
                 <div className="bg-[#111930]/60 border border-white/5 p-5 rounded-2xl relative overflow-hidden glass-effect">
                   <div className="absolute top-0 left-0 right-0 h-1 bg-green-500"></div>
                   <div className="text-gray-400 text-xs font-semibold mb-1">صافي الأرباح العـام</div>
@@ -729,40 +910,30 @@ export default function App() {
                   <div className="mt-2 text-[10px] text-gray-500">مخصوم منها المصاريف المسجلة</div>
                 </div>
 
-                {/* HUD Card 3: Delivered orders volume */}
+                {/* Card 5: إجمالي المصاريف */}
                 <div className="bg-[#111930]/60 border border-white/5 p-5 rounded-2xl relative overflow-hidden glass-effect">
-                  <div className="absolute top-0 left-0 right-0 h-1 bg-amber-500"></div>
-                  <div className="text-gray-400 text-xs font-semibold mb-1">طلبات قيد التوصيل والمشحونة</div>
-                  <div className="text-2xl font-black font-mono tracking-tight text-amber-400">{statsOverview.tourDeliveryInRoute} طلبات</div>
-                  <div className="mt-2 text-[10px] text-amber-500 font-bold">بانتظار معاودة الاتصال والشحن</div>
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-red-400"></div>
+                  <div className="text-gray-400 text-xs font-semibold mb-1">إجمالي المصاريف</div>
+                  <div className="text-2xl font-black font-mono tracking-tight text-red-400">
+                    {formatCurrency(statsOverview.totalExpenses)}
+                  </div>
+                  <div className="mt-2 text-[10px] text-gray-500">مجموع قيم عمود Prix في المصاريف</div>
                 </div>
 
-                {/* HUD Card 4: Success percentage with visual progress strip */}
+                {/* Card 6: تكلفة المبيعة */}
                 <div className="bg-[#111930]/60 border border-white/5 p-5 rounded-2xl relative overflow-hidden glass-effect">
-                  <div className="absolute top-0 left-0 right-0 h-1 bg-indigo-500"></div>
-                  <div className="text-gray-400 text-xs font-semibold mb-1">نسبة التوصيل والاستلام الناجحة</div>
-                  <div className="text-2xl font-black font-mono tracking-tight text-white">{statsOverview.deliveryRateExact.toFixed(1)}%</div>
-                  
-                  {/* Progress bar strip */}
-                  <div className="mt-3 w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
-                    <div className="bg-indigo-500 h-full rounded-full transition-all duration-1000" style={{ width: `${statsOverview.deliveryRateExact}%` }}></div>
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-cyan-400"></div>
+                  <div className="text-gray-400 text-xs font-semibold mb-1">تكلفة المبيعة</div>
+                  <div className="text-2xl font-black font-mono tracking-tight text-cyan-400">
+                    {formatCurrency(statsOverview.costPerSale)}
                   </div>
-                </div>
-
-                {/* HUD Card 5: Average Order Value (AOV) strictly based on Delivered orders */}
-                <div className="bg-[#111930]/60 border border-white/5 p-5 rounded-2xl relative overflow-hidden glass-effect">
-                  <div className="absolute top-0 left-0 right-0 h-1 bg-rose-500"></div>
-                  <div className="text-gray-400 text-xs font-semibold mb-1">متوسط قيمة الطلب (AOV)</div>
-                  <div className="text-2xl font-black font-mono tracking-tight text-rose-400">
-                    {formatCurrency(statsOverview.averageOrderValue)}
-                  </div>
-                  <div className="mt-2 text-[10px] text-gray-500">بناءً على الطلبات المكتملة (Delivered)</div>
+                  <div className="mt-2 text-[10px] text-gray-500">إجمالي المصاريف / الطرود المسلّمة</div>
                 </div>
               </div>
             )}
 
             {/* D. DYNAMIC TABS ROUTER ELEMENT */}
-            <div className="flex-1 overflow-hidden min-h-[500px]">
+            <div className="flex-1 min-h-[500px]">
               
               {activeTab === "sales" && (
                 <SalesTab 
@@ -812,10 +983,20 @@ export default function App() {
                 />
               )}
 
+              {activeTab === "no_purchase" && (
+                <NoPurchaseTab 
+                  sales={data.sales}
+                  purchases={data.purchases}
+                  onUpdateOrder={handleInlineStatusUpdate}
+                />
+              )}
+
               {activeTab === "settings" && (
                 <SettingsTab 
                   onSync={syncDatabase}
                   isLoading={isLoading}
+                  currentFont={currentFont}
+                  onFontChange={handleFontChange}
                 />
               )}
 
@@ -977,6 +1158,19 @@ export default function App() {
             { key: "Prix", label: "القيمة المنفقة (Prix)", type: "number", required: true },
             { key: "Taper", label: "شرح المصروف (Taper)", type: "select", options: expenseTapersOptions, required: true }
           ]}
+        />
+      )}
+
+      {/* --- PRODUCT IMAGE MAPPING DYNAMIC MULTI-UPLOAD WINDOW --- */}
+      {isProductMapperOpen && (
+        <ProductImageMapperModal 
+          sales={data.sales}
+          purchases={data.purchases}
+          onClose={() => setIsProductMapperOpen(false)}
+          onSaved={() => {
+            // Hot reload cached configs or states
+            loadLocalData(false);
+          }}
         />
       )}
 

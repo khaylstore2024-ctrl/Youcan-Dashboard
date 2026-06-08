@@ -144,7 +144,8 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
       "Condition": newSaleForm.Condition,
       "Livreur": newSaleForm.Livreur,
       "delivery": newSaleForm.delivery,
-      "WHATSAPP": generateWhatsAppUrl(newSaleForm.Phone),
+      "WhatsApp Sent": "لا",
+      "WhatsApp Count": 0,
       ...calcs
     };
 
@@ -866,7 +867,7 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
                     onChange={e => setNewSaleForm({ ...newSaleForm, delivery: e.target.value })}
                     className="w-full bg-[#0d1426] border border-white/10 text-white rounded-xl px-2.5 py-1.5 text-xs"
                   >
-                    <option value="">بانتظار الشحن</option>
+                    <option value="">بانتظار التسليم</option>
                     {DELIVERY_STATUSES.map(d => (
                       <option key={d.value} value={d.value}>{d.label}</option>
                     ))}
@@ -961,10 +962,11 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
                 <div>
                   <label className="block text-[10px] text-gray-500 mb-1">الإجراء التشغيلي (Condition)</label>
                   <select
-                    value={selectedOrderDetail.Condition || "Confirmed"}
+                    value={selectedOrderDetail.Condition || ""}
                     onChange={e => handleDetailUpdate(selectedOrderDetail._rowNum || 2, "Condition", e.target.value, selectedOrderDetail)}
                     className="w-full bg-[#111930] border border-white/5 text-white rounded-xl px-2.5 py-1.5 text-xs"
                   >
+                    <option value="">Aucune</option>
                     {CONDITIONS.map(c => (
                       <option key={c.value} value={c.value}>{c.label}</option>
                     ))}
@@ -991,7 +993,7 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
                     onChange={e => handleDetailUpdate(selectedOrderDetail._rowNum || 2, "delivery", e.target.value, selectedOrderDetail)}
                     className="w-full bg-[#111930] border border-white/5 text-white rounded-xl px-2.5 py-1.5 text-xs text-blue-400"
                   >
-                    <option value="">بانتظار الشحن والتوصيل</option>
+                    <option value="">بانتظار التسليم</option>
                     {DELIVERY_STATUSES.map(d => (
                       <option key={d.value} value={d.value} className="text-white">{d.label}</option>
                     ))}
