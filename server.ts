@@ -45,6 +45,10 @@ if (useTmpDb) {
 
 app.use(express.json());
 
+// Track last local database modifications to avoid race condition where stale Google Sheets pulldown overwrites newer local data while background auto-push is running
+let lastLocalWriteTime = 0;
+let activeWritesCount = 0; // Guard to prevent reading from sheets during an active remote write/clear
+
 // Initialize database if not exists
 function ensureDbExists() {
   const dir = path.dirname(DB_FILE);
@@ -71,6 +75,7 @@ function ensureDbExists() {
           "Product URL": "https://yourstore.com/products/airfryer",
           "Variant price": 499,
           "Total quantity": 1,
+          "Product variant": "XL / Red",
           "Total price": 499,
           "Condition": "Confirmed",
           "Livreur": "CATHEDIS Express",
@@ -95,6 +100,7 @@ function ensureDbExists() {
           "Product URL": "https://yourstore.com/products/chopper",
           "Variant price": 220,
           "Total quantity": 2,
+          "Product variant": "Standard",
           "Total price": 440,
           "Condition": "Confirmed",
           "Livreur": "CATHEDIS Fast",
@@ -119,6 +125,7 @@ function ensureDbExists() {
           "Product URL": "https://yourstore.com/products/desklamp",
           "Variant price": 120,
           "Total quantity": 1,
+          "Product variant": "White",
           "Total price": 120,
           "Condition": "Confirmed",
           "Livreur": "CATHEDIS Premium",
@@ -143,6 +150,7 @@ function ensureDbExists() {
           "Product URL": "https://yourstore.com/products/earbuds",
           "Variant price": 150,
           "Total quantity": 1,
+          "Product variant": "Black",
           "Total price": 0,
           "Condition": "Anule",
           "Livreur": "CATHEDIS Express",
@@ -167,6 +175,7 @@ function ensureDbExists() {
           "Product URL": "https://yourstore.com/products/airfryer",
           "Variant price": 499,
           "Total quantity": 1,
+          "Product variant": "XL / Red",
           "Total price": 0,
           "Condition": "Confirmed",
           "Livreur": "CATHEDIS Express",
@@ -310,8 +319,9 @@ async function autoPushToGoogleSheets(sheetName: string, userAccessToken?: strin
       headers = [
         "Order ID", "Order date", "Full name", "Phone", "City", "Region", 
         "Product name", "Product URL", "Variant price", "Total quantity", 
+        "Product variant",
         "Total price", "Condition", "Livreur", "delivery", "prix d'achat", 
-        "Frais livraison", "Bénéfice", "Fournisseur", "Fourni price", "WhatsApp Sent", "WhatsApp Count"
+        "Frais livraison", "Bénéfice", "Fournisseur", "Fourni price", "WhatsApp Sent", "WhatsApp Count", "Unreachable Count"
       ];
     } else if (sheetName === "Achat") {
       targetArray = db.purchases;
@@ -359,8 +369,9 @@ app.get("/api/get-sheet", (req, res) => {
       headers = [
         "Order ID", "Order date", "Full name", "Phone", "City", "Region", 
         "Product name", "Product URL", "Variant price", "Total quantity", 
+        "Product variant",
         "Total price", "Condition", "Livreur", "delivery", "prix d'achat", 
-        "Frais livraison", "Bénéfice", "Fournisseur", "Fourni price", "WhatsApp Sent", "WhatsApp Count"
+        "Frais livraison", "Bénéfice", "Fournisseur", "Fourni price", "WhatsApp Sent", "WhatsApp Count", "Unreachable Count"
       ];
     } else if (sheetName === "Achat") {
       targetArray = db.purchases || [];
@@ -423,6 +434,7 @@ app.post("/api/save-generic", async (req, res) => {
     return res.status(400).json({ success: false, error: "Missing sheetName" });
   }
   
+  lastLocalWriteTime = Date.now();
   try {
     const db = readDb();
     let currentArray: any[] = [];
@@ -512,6 +524,7 @@ app.post("/api/delete-generic", async (req, res) => {
     return res.status(400).json({ success: false, error: "Missing sheetName or rowNum" });
   }
   
+  lastLocalWriteTime = Date.now();
   try {
     const db = readDb();
     let currentArray: any[] = [];
@@ -572,6 +585,7 @@ app.post("/api/update-order-row", async (req, res) => {
     return res.status(400).json({ success: false, error: "Invalid rowNum" });
   }
   
+  lastLocalWriteTime = Date.now();
   try {
     const db = readDb();
     let currentArray: any[] = [];
@@ -601,7 +615,7 @@ app.post("/api/update-order-row", async (req, res) => {
     const numCols = [
       'Variant price', 'Total quantity', 'Total price', "prix d'achat", 
       'Frais livraison', 'Bénéfice', 'Fourni price', 'nombre', 
-      'Prix Unit', 'total', 'Prix de vente', 'Prix', 'Payment', 'WhatsApp Count'
+      'Prix Unit', 'total', 'Prix de vente', 'Prix', 'Payment', 'WhatsApp Count', 'Unreachable Count'
     ];
     
     const rowObj = { ...currentArray[idx] };
@@ -811,12 +825,21 @@ async function httpsRequestFallback(urlStr: string, options: any = {}): Promise<
 }
 
 // Robust Fetch wrapper with retries and a bulletproof HTTPS module fallback
-async function robustFetch(url: string, options: any = {}, retries = 2, delayMs = 500): Promise<any> {
+async function robustFetch(url: string, options: any = {}, retries = 4, delayMs = 1000): Promise<any> {
   let lastError: any = null;
 
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const res = await fetch(url, options);
+      
+      // If we got a 429 Rate Limit/Quota Exceeded, wait and retry
+      if (res.status === 429) {
+        const waitTime = delayMs * Math.pow(1.5, attempt) + Math.random() * 1000;
+        console.warn(`[robustFetch] Received 429 Rate Limit for ${url}. Waiting ${Math.round(waitTime)}ms before retry ${attempt}/${retries}...`);
+        await new Promise(r => setTimeout(r, waitTime));
+        continue;
+      }
+      
       return res;
     } catch (err: any) {
       lastError = err;
@@ -888,8 +911,28 @@ function parseGoogleSheetsError(text: string, clientEmail: string, sheetRange: s
   return text;
 }
 
+const sheetsCache = new Map<string, { data: any[][] | null; timestamp: number }>();
+// Cache duration: 15 seconds (15000ms) to thoroughly guard against rapid spam / remount calls
+const SHEETS_CACHE_TTL = 15000;
+
 // Fetch values from Google Sheet range
-async function fetchValuesFromSheet(spreadsheetId: string, sheetRange: string, settings: any, userAccessToken?: string): Promise<any[][] | null> {
+async function fetchValuesFromSheet(
+  spreadsheetId: string, 
+  sheetRange: string, 
+  settings: any, 
+  userAccessToken?: string,
+  bypassCache = false
+): Promise<any[][] | null> {
+  const cacheKey = `${spreadsheetId}::${sheetRange}::${userAccessToken || "default"}`;
+  
+  if (!bypassCache) {
+    const cached = sheetsCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < SHEETS_CACHE_TTL) {
+      console.info(`[sheetsCache] HIT for ${sheetRange}. Returning cached values.`);
+      return cached.data;
+    }
+  }
+
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetRange)}?valueRenderOption=FORMATTED_VALUE`;
   
   // 1. Try with userAccessToken if provided and valid
@@ -899,7 +942,9 @@ async function fetchValuesFromSheet(spreadsheetId: string, sheetRange: string, s
       const res = await robustFetch(url, { headers });
       if (res.ok) {
         const data = await res.json() as { values?: any[][] };
-        return data.values || null;
+        const values = data.values || null;
+        sheetsCache.set(cacheKey, { data: values, timestamp: Date.now() });
+        return values;
       } else {
         const text = await res.text();
         console.warn(`Could not fetch ${sheetRange} using user access token (status: ${res.status}). Error: ${text}. Falling back to Service Account/API key if available.`);
@@ -917,7 +962,9 @@ async function fetchValuesFromSheet(spreadsheetId: string, sheetRange: string, s
       const res = await robustFetch(url, { headers });
       if (res.ok) {
         const data = await res.json() as { values?: any[][] };
-        return data.values || null;
+        const values = data.values || null;
+        sheetsCache.set(cacheKey, { data: values, timestamp: Date.now() });
+        return values;
       } else {
         const text = await res.text();
         const friendlyError = parseGoogleSheetsError(text, settings.clientEmail, sheetRange);
@@ -941,7 +988,9 @@ async function fetchValuesFromSheet(spreadsheetId: string, sheetRange: string, s
       const res = await robustFetch(apiKeyUrl);
       if (res.ok) {
         const data = await res.json() as { values?: any[][] };
-        return data.values || null;
+        const values = data.values || null;
+        sheetsCache.set(cacheKey, { data: values, timestamp: Date.now() });
+        return values;
       } else {
         const text = await res.text();
         const friendlyError = parseGoogleSheetsError(text, settings.clientEmail || "", sheetRange);
@@ -963,67 +1012,75 @@ async function fetchValuesFromSheet(spreadsheetId: string, sheetRange: string, s
 
 // Write (Update) values to Google Sheet range
 async function writeValuesToSheet(spreadsheetId: string, sheetName: string, values: any[][], settings: any, userAccessToken?: string): Promise<boolean> {
-  const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A1:Z2500:clear`;
-  const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}?valueInputOption=USER_ENTERED`;
-  
-  const tryWriteWithToken = async (authToken: string): Promise<boolean> => {
-    try {
-      await robustFetch(clearUrl, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${authToken}` }
-      });
-    } catch (clearErr) {
-      console.warn("Ignored buffer clear error:", clearErr);
-    }
-
-    const res = await robustFetch(updateUrl, {
-      method: "PUT",
-      headers: {
-        "Authorization": `Bearer ${authToken}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        range: sheetName,
-        majorDimension: "ROWS",
-        values: values
-      })
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      const friendlyError = parseGoogleSheetsError(text, settings.clientEmail || "", sheetName);
-      throw new Error(friendlyError);
-    }
-    return true;
-  };
-
-  // 1. Try with userAccessToken if provided
-  if (userAccessToken && userAccessToken !== "null" && userAccessToken !== "undefined" && userAccessToken.trim() !== "") {
-    try {
-      const success = await tryWriteWithToken(userAccessToken);
-      if (success) return true;
-    } catch (err: any) {
-      console.warn(`Could not update Sheets using user access token. Error: ${err.message || err}. Falling back to Service Account.`);
-    }
-  }
-
-  // 2. Try with Service Account
-  if (settings.clientEmail && settings.privateKey) {
-    try {
-      const token = await getGoogleToken(settings.clientEmail, settings.privateKey);
-      return await tryWriteWithToken(token);
-    } catch (err: any) {
-      console.error("Service Account write failed:", err);
-      const msg = err.message || err.toString();
-      if (msg.includes("⚠️") || msg.includes("خطأ")) {
-        throw err;
+  activeWritesCount++;
+  try {
+    const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A1:Z2500:clear`;
+    const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}?valueInputOption=USER_ENTERED`;
+    
+    const tryWriteWithToken = async (authToken: string): Promise<boolean> => {
+      try {
+        await robustFetch(clearUrl, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${authToken}` }
+        });
+      } catch (clearErr) {
+        console.warn("Ignored buffer clear error:", clearErr);
       }
-      const friendlyError = parseGoogleSheetsError(msg, settings.clientEmail, sheetName);
-      throw new Error(`فشل تحديث خلايا Google Sheets:\n${friendlyError}`);
-    }
-  }
 
-  throw new Error("يتطلب تحديث البيانات (Push) تفعيل تسجيل الدخول بـ Google أو إدخال حساب الخدمة Google Service Account.");
+      const res = await robustFetch(updateUrl, {
+        method: "PUT",
+        headers: {
+          "Authorization": `Bearer ${authToken}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          range: sheetName,
+          majorDimension: "ROWS",
+          values: values
+        })
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        const friendlyError = parseGoogleSheetsError(text, settings.clientEmail || "", sheetName);
+        throw new Error(friendlyError);
+      }
+      
+      // Invalidate the cache to ensure we fetch fresh values next time
+      sheetsCache.clear();
+      return true;
+    };
+
+    // 1. Try with userAccessToken if provided
+    if (userAccessToken && userAccessToken !== "null" && userAccessToken !== "undefined" && userAccessToken.trim() !== "") {
+      try {
+        const success = await tryWriteWithToken(userAccessToken);
+        if (success) return true;
+      } catch (err: any) {
+        console.warn(`Could not update Sheets using user access token. Error: ${err.message || err}. Falling back to Service Account.`);
+      }
+    }
+
+    // 2. Try with Service Account
+    if (settings.clientEmail && settings.privateKey) {
+      try {
+        const token = await getGoogleToken(settings.clientEmail, settings.privateKey);
+        return await tryWriteWithToken(token);
+      } catch (err: any) {
+        console.error("Service Account write failed:", err);
+        const msg = err.message || err.toString();
+        if (msg.includes("⚠️") || msg.includes("خطأ")) {
+          throw err;
+        }
+        const friendlyError = parseGoogleSheetsError(msg, settings.clientEmail, sheetName);
+        throw new Error(`فشل تحديث خلايا Google Sheets:\n${friendlyError}`);
+      }
+    }
+
+    throw new Error("يتطلب تحديث البيانات (Push) تفعيل تسجيل الدخول بـ Google أو إدخال حساب الخدمة Google Service Account.");
+  } finally {
+    activeWritesCount--;
+  }
 }
 
 // REST ENDPOINTS FOR GOOGLE SHEETS SETUP
@@ -1080,7 +1137,7 @@ function parseSheetRowsToObjects(values: any[][], expectedHeaders: string[]): an
   const numCols = [
     'Variant price', 'Total quantity', 'Total price', "prix d'achat", 
     'Frais livraison', 'Bénéfice', 'Fourni price', 'nombre', 
-    'Prix Unit', 'total', 'Payment', 'Prix de vente', 'Prix', 'WhatsApp Count'
+    'Prix Unit', 'total', 'Payment', 'Prix de vente', 'Prix', 'WhatsApp Count', 'Unreachable Count'
   ];
   
   for (let r = 1; r < values.length; r++) {
@@ -1090,7 +1147,10 @@ function parseSheetRowsToObjects(values: any[][], expectedHeaders: string[]): an
     const obj: any = { _rowNum: r + 1 };
     
     expectedHeaders.forEach(eh => {
-      const idx = rawHeaders.indexOf(normalizeHeader(eh));
+      let idx = rawHeaders.indexOf(normalizeHeader(eh));
+      if (idx === -1 && eh === "Order date") {
+        idx = rawHeaders.indexOf("Order dat");
+      }
       if (idx !== -1 && idx < rowValues.length) {
         let val = rowValues[idx];
         if (val !== undefined && val !== null) {
@@ -1121,6 +1181,43 @@ function parseSheetRowsToObjects(values: any[][], expectedHeaders: string[]): an
 app.post("/api/google-sheets/sync-pull", async (req, res) => {
   try {
     const db = readDb();
+    
+    // Concurrency Lock: If there is an active write or clear operating on Google Sheets,
+    // skip pulling to avoid loading blank/half-cleared files.
+    if (activeWritesCount > 0) {
+      console.log(`[Sync-Pull Concurrency Protection] Skip pulling from Google Sheets because a write is in progress.`);
+      return res.json({
+        success: true,
+        skipped: true,
+        message: "تم تخطي المزامنة السحابية مؤقتاً لتجنب تداخل تصفير النطاق والتحميل النشط.",
+        pulledIndicesCount: {
+          sales: db.sales.length,
+          purchases: db.purchases.length,
+          payments: db.payments.length,
+          expenses: db.expenses.length
+        }
+      });
+    }
+
+    // Cooldown check: If a local write or update happened very recently (within 45 seconds),
+    // skip downloading from Google Sheets unless explicitly forced. This prevents stale values
+    // on Google Sheets from overwriting and rolling back our newly made modifications on the active UI tab.
+    const isForced = req.body.force === true || req.query.force === "true";
+    const timeSinceLastWrite = Date.now() - lastLocalWriteTime;
+    if (timeSinceLastWrite < 45000 && !isForced) {
+      console.log(`[Cooldown Sync-Pull Protection] Swallowed background pull to protect local writes ${timeSinceLastWrite}ms ago.`);
+      return res.json({
+        success: true,
+        skipped: true,
+        message: "Skipped pulling from Google Sheets to protect recent local modifications.",
+        pulledIndicesCount: {
+          sales: db.sales.length,
+          purchases: db.purchases.length,
+          payments: db.payments.length,
+          expenses: db.expenses.length
+        }
+      });
+    }
     const settings = db.googleSheetsSettings;
     
     if (!settings || !settings.spreadsheetId) {
@@ -1150,8 +1247,9 @@ app.post("/api/google-sheets/sync-pull", async (req, res) => {
     const salesHeaders = [
       "Order ID", "Order date", "Full name", "Phone", "City", "Region", 
       "Product name", "Product URL", "Variant price", "Total quantity", 
+      "Product variant",
       "Total price", "Condition", "Livreur", "delivery", "prix d'achat", 
-      "Frais livraison", "Bénéfice", "Fournisseur", "Fourni price", "WhatsApp Sent", "WhatsApp Count"
+      "Frais livraison", "Bénéfice", "Fournisseur", "Fourni price", "WhatsApp Sent", "WhatsApp Count", "Unreachable Count"
     ];
     const purchasesHeaders = ["ID", "date", "nombre", "Produit", "Code", "Prix Unit", "total", "Fournisseur", "Prix de vente"];
     const paymentsHeaders = ["ID", "date", "Payment", "Fournisseur"];
@@ -1168,31 +1266,38 @@ app.post("/api/google-sheets/sync-pull", async (req, res) => {
     let lastError: any = null;
 
     try {
-      salesRaw = await fetchValuesFromSheet(spreadsheetId, "Youcan-Orders", settings, userAccessToken);
+      salesRaw = await fetchValuesFromSheet(spreadsheetId, "Youcan-Orders", settings, userAccessToken, isForced);
       fetchedAtLeastOne = true;
     } catch (e: any) {
       console.warn("Could not fetch Youcan-Orders:", e);
       lastError = e;
     }
 
+    // Small stagger delay of 450ms prevents triggering Google Sheets API simultaneous burst/concurrent rate limits (HTTP 429)
+    await new Promise(r => setTimeout(r, 450));
+
     try {
-      purchasesRaw = await fetchValuesFromSheet(spreadsheetId, "Achat", settings, userAccessToken);
+      purchasesRaw = await fetchValuesFromSheet(spreadsheetId, "Achat", settings, userAccessToken, isForced);
       fetchedAtLeastOne = true;
     } catch (e: any) {
       console.warn("Could not fetch Achat:", e);
       if (!lastError) lastError = e;
     }
 
+    await new Promise(r => setTimeout(r, 450));
+
     try {
-      paymentsRaw = await fetchValuesFromSheet(spreadsheetId, "Payments", settings, userAccessToken);
+      paymentsRaw = await fetchValuesFromSheet(spreadsheetId, "Payments", settings, userAccessToken, isForced);
       fetchedAtLeastOne = true;
     } catch (e: any) {
       console.warn("Could not fetch Payments:", e);
       if (!lastError) lastError = e;
     }
 
+    await new Promise(r => setTimeout(r, 450));
+
     try {
-      expensesRaw = await fetchValuesFromSheet(spreadsheetId, "Expenses", settings, userAccessToken);
+      expensesRaw = await fetchValuesFromSheet(spreadsheetId, "Expenses", settings, userAccessToken, isForced);
       fetchedAtLeastOne = true;
     } catch (e: any) {
       console.warn("Could not fetch Expenses:", e);
@@ -1206,21 +1311,57 @@ app.post("/api/google-sheets/sync-pull", async (req, res) => {
       });
     }
     
-    // Parse
-    if (salesRaw) db.sales = parseSheetRowsToObjects(salesRaw, salesHeaders);
-    if (purchasesRaw) db.purchases = parseSheetRowsToObjects(purchasesRaw, purchasesHeaders);
-    if (paymentsRaw) db.payments = parseSheetRowsToObjects(paymentsRaw, paymentsHeaders);
-    if (expensesRaw) db.expenses = parseSheetRowsToObjects(expensesRaw, expensesHeaders);
+    // Parse to temporary structures first
+    const freshSales = salesRaw ? parseSheetRowsToObjects(salesRaw, salesHeaders) : null;
+    const freshPurchases = purchasesRaw ? parseSheetRowsToObjects(purchasesRaw, purchasesHeaders) : null;
+    const freshPayments = paymentsRaw ? parseSheetRowsToObjects(paymentsRaw, paymentsHeaders) : null;
+    const freshExpenses = expensesRaw ? parseSheetRowsToObjects(expensesRaw, expensesHeaders) : null;
     
-    writeDb(db);
+    // Read the LATEST db state from disk right before writing, to preserve any edits made while fetching sheets!
+    const latestDb = readDb();
+    
+    // Safety protection against empty sheets overwriting massive local historical arrays
+    if (freshSales) {
+      if (freshSales.length > 0 || latestDb.sales.length === 0 || isForced) {
+        latestDb.sales = freshSales;
+      } else {
+        console.warn(`[Sync-Pull Shield] Ignored blank Youcan-Orders pull to protect local data of size ${latestDb.sales.length}`);
+      }
+    }
+    
+    if (freshPurchases) {
+      if (freshPurchases.length > 0 || latestDb.purchases.length === 0 || isForced) {
+        latestDb.purchases = freshPurchases;
+      } else {
+        console.warn(`[Sync-Pull Shield] Ignored blank Achat pull to protect local data of size ${latestDb.purchases.length}`);
+      }
+    }
+    
+    if (freshPayments) {
+      if (freshPayments.length > 0 || latestDb.payments.length === 0 || isForced) {
+        latestDb.payments = freshPayments;
+      } else {
+        console.warn(`[Sync-Pull Shield] Ignored blank Payments pull to protect local data of size ${latestDb.payments.length}`);
+      }
+    }
+    
+    if (freshExpenses) {
+      if (freshExpenses.length > 0 || latestDb.expenses.length === 0 || isForced) {
+        latestDb.expenses = freshExpenses;
+      } else {
+        console.warn(`[Sync-Pull Shield] Ignored blank Expenses pull to protect local data of size ${latestDb.expenses.length}`);
+      }
+    }
+    
+    writeDb(latestDb);
     
     res.json({ 
       success: true, 
       pulledIndicesCount: {
-        sales: db.sales.length,
-        purchases: db.purchases.length,
-        payments: db.payments.length,
-        expenses: db.expenses.length
+        sales: latestDb.sales.length,
+        purchases: latestDb.purchases.length,
+        payments: latestDb.payments.length,
+        expenses: latestDb.expenses.length
       }
     });
   } catch (err: any) {
@@ -1268,8 +1409,9 @@ app.post("/api/google-sheets/sync-push", async (req, res) => {
     const salesHeaders = [
       "Order ID", "Order date", "Full name", "Phone", "City", "Region", 
       "Product name", "Product URL", "Variant price", "Total quantity", 
+      "Product variant",
       "Total price", "Condition", "Livreur", "delivery", "prix d'achat", 
-      "Frais livraison", "Bénéfice", "Fournisseur", "Fourni price", "WhatsApp Sent", "WhatsApp Count"
+      "Frais livraison", "Bénéfice", "Fournisseur", "Fourni price", "WhatsApp Sent", "WhatsApp Count", "Unreachable Count"
     ];
     const purchasesHeaders = ["ID", "date", "nombre", "Produit", "Code", "Prix Unit", "total", "Fournisseur", "Prix de vente"];
     const paymentsHeaders = ["ID", "date", "Payment", "Fournisseur"];

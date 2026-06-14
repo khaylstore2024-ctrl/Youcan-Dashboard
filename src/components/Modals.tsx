@@ -25,6 +25,7 @@ export const SaleAddModal: React.FC<SaleAddModalProps> = ({ onClose, onSave, pur
     "Product URL": "",
     "Variant price": "" as any,
     "Total quantity": "" as any,
+    "Product variant": "",
     "Condition": "",
     "delivery": "",
     "Livreur": "",
@@ -281,16 +282,27 @@ export const SaleAddModal: React.FC<SaleAddModalProps> = ({ onClose, onSave, pur
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-300 mb-1">رابط المنتج (URL)</label>
+                <label className="block text-xs font-medium text-gray-300 mb-1">المقاس / اللون (Product variant)</label>
                 <input
-                  type="url"
-                  placeholder="https://..."
-                  value={formData["Product URL"]}
-                  onChange={e => setFormData({ ...formData, "Product URL": e.target.value })}
-                  className="w-full bg-[#0d1426] border border-white/10 rounded-xl px-3 py-2 text-sm text-white font-mono text-left"
-                  dir="ltr"
+                  type="text"
+                  placeholder="مثال: XL / أحمر"
+                  value={formData["Product variant"]}
+                  onChange={e => setFormData({ ...formData, "Product variant": e.target.value })}
+                  className="w-full bg-[#0d1426] border border-white/10 rounded-xl px-3 py-2 text-sm text-white"
                 />
               </div>
+            </div>
+
+            <div className="mt-4">
+              <label className="block text-xs font-medium text-gray-300 mb-1">رابط المنتج (URL)</label>
+              <input
+                type="url"
+                placeholder="https://..."
+                value={formData["Product URL"]}
+                onChange={e => setFormData({ ...formData, "Product URL": e.target.value })}
+                className="w-full bg-[#0d1426] border border-white/10 rounded-xl px-3 py-2 text-sm text-white font-mono text-left"
+                dir="ltr"
+              />
             </div>
           </div>
 

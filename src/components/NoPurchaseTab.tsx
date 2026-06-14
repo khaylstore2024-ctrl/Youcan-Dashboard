@@ -48,6 +48,14 @@ export const NoPurchaseTab: React.FC<NoPurchaseTabProps> = ({ sales, purchases, 
   // Sorting State
   const [sortDirection, setSortDirection] = useState<"desc" | "asc">("desc");
 
+  // Modern state for unreachable WhatsApp notification form modal
+  const [unreachableModalOrder, setUnreachableModalOrder] = useState<Order | null>(null);
+  const [unreachableParcel, setUnreachableParcel] = useState("");
+  const [unreachableCourier, setUnreachableCourier] = useState(() => {
+    return localStorage.getItem("khayl_unreachable_courier_default") || "";
+  });
+  const [unreachableProductName, setUnreachableProductName] = useState("");
+
   // WhatsApp Message Template state
   const [template, setTemplate] = useState(() => {
     const newDefault = "السلام عليكم {name}، معك فريق الدعم لمتجرنا خيل سطور بخصوص طلبكم لمنتج ({product}). لقد لاحظنا أنه لم يتم تأكيد طلبكم أو واجهتم مشكلة بالتوصيل. هل ما زلت مهتماً بالمنتج لنقوم بمساعدتكم؟\nرابط المنتج للمعاينة: {url}";
@@ -764,23 +772,7 @@ export const NoPurchaseTab: React.FC<NoPurchaseTabProps> = ({ sales, purchases, 
                       
                       {/* Name of buyer */}
                       <td className="px-5 py-4 font-bold text-white font-sans">
-                        <div className="flex flex-col items-start gap-1">
-                          <span>{sale["Full name"] || "عميل بدون اسم"}</span>
-                          {(() => {
-                            const isSent = sale["WhatsApp Sent"] === "نعم" || (sale["WhatsApp Count"] !== undefined && sale["WhatsApp Count"] > 0);
-                            const count = sale["WhatsApp Count"] || 0;
-                            return isSent ? (
-                              <span className="px-2 py-0.5 rounded-full text-[9px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-bold flex items-center gap-1">
-                                <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
-                                <span>تم الإرسال ({count} {count === 1 ? "مرة" : "مرات"})</span>
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 rounded-full text-[9px] bg-white/5 text-gray-400 border border-white/5">
-                                لم يرسل بعد
-                              </span>
-                            );
-                          })()}
-                        </div>
+                        <span>{sale["Full name"] || "عميل بدون اسم"}</span>
                       </td>
 
                       {/* Contact phone number */}
@@ -931,8 +923,24 @@ export const NoPurchaseTab: React.FC<NoPurchaseTabProps> = ({ sales, purchases, 
                             title="مراسلة سريعة: سيقوم بفتح المحادثة بالواتساب بنص الرسالة مكتوباً تلقائياً والنسخ الذاتي للصور وتهيئة الحافظة لتتمكن من لصقها فوراً باستعمال Ctrl + V"
                           >
                             <MessageSquare className="w-3.5 h-3.5" />
-                            <span>مراسلة واتساب</span>
+                            <span>مراسلة واتساب ({sale["WhatsApp Count"] || 0})</span>
                             <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                          </button>
+
+                          {/* Unreachable / Connection issue specialized button */}
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setUnreachableParcel("");
+                              setUnreachableProductName(getProductName(sale["Product name"] || ""));
+                              setUnreachableModalOrder(sale);
+                            }}
+                            className="h-8 px-2.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 hover:shadow-lg hover:shadow-amber-900/10 text-white rounded-xl text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer border border-amber-500/20"
+                            title="تنبيه تعذر الاتصال: إرسال رسالة مخصصة للعميل الذي تعذر الاتصال به مع إرفاق رقم الموزع ورقم الحوالة/الطرد للاتصال به لتسلم شحنته"
+                          >
+                            <PhoneOff className="w-3.5 h-3.5 shrink-0" />
+                            <span>تنبيه الاتصال ({sale["Unreachable Count"] || 0})</span>
+                            <ExternalLink className="w-2.5 h-2.5 opacity-60 shrink-0" />
                           </button>
 
                         </div>
@@ -997,6 +1005,183 @@ export const NoPurchaseTab: React.FC<NoPurchaseTabProps> = ({ sales, purchases, 
           }}
           initialTab={unifiedSettingsTab}
         />
+      )}
+
+      {/* 4. SPECIALIZED UNREACHABLE/CONNECTION PROBLEM WHATSAPP MODAL */}
+      {unreachableModalOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in" dir="rtl">
+          <div className="bg-[#111930] border border-white/10 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl relative">
+            
+            {/* Header */}
+            <div className="p-5 border-b border-white/5 flex items-center justify-between bg-gradient-to-l from-amber-600/10 to-transparent">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/15 text-amber-500 flex items-center justify-center">
+                  <PhoneOff className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">إرسال تنبيه تعذر الاتصال (واتساب)</h3>
+                  <p className="text-[10px] text-gray-400">إشعار المشتري بوجود عقبة في الاتصال هاتفياً لتنسيق تسليم الشحنة</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setUnreachableModalOrder(null)}
+                className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white flex items-center justify-center transition-colors"
+                id="close-unreachable-modal"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Content Form */}
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                
+                // Save inputs to localStorage for future default
+                localStorage.setItem("khayl_unreachable_courier_default", unreachableCourier);
+
+                const prodCode = unreachableModalOrder["Product name"] || "";
+                const clientName = unreachableModalOrder["Full name"] || "العميل";
+                const pName = unreachableProductName || getProductName(prodCode) || "المنتج";
+                const pKey = prodCode.trim().toLowerCase();
+                const customConfig = mediaConfigs[pKey];
+                const hasCustomImage = !!customConfig?.image;
+
+                // Build the precise message template requested by the user
+                const formattedMessage = `السلام عليكم ${clientName}،\n\nبخصوص طلبكم: ${pName}\n\nرقم الطرد: ${unreachableParcel}\n\nتمت محاولة الاتصال بكم من طرف الموزع لتسليم الطلب، لكن تعذر التواصل معكم لأن الهاتف كان مغلقًا أو كانت هناك مشكلة في الاتصال.\n\nالمرجو الاتصال بالموزع على الرقم: ${unreachableCourier} لتنسيق عملية التسليم في أقرب وقت.\n\nشكرًا لتعاونكم.`;
+
+                // Set clipboard
+                if (hasCustomImage) {
+                  const rNum = unreachableModalOrder._rowNum ?? 9999;
+                  await copyImageToClipboard(customConfig.image, rNum, true, formattedMessage);
+                } else {
+                  try {
+                    await navigator.clipboard.writeText(formattedMessage);
+                  } catch (err) {
+                    console.warn("Direct text clipboard copying failed.", err);
+                  }
+                }
+
+                // Increment Unreachable Sent Count
+                if (unreachableModalOrder._rowNum !== undefined && onUpdateOrder) {
+                  const currentCount = unreachableModalOrder["Unreachable Count"] || 0;
+                  onUpdateOrder(unreachableModalOrder._rowNum, { 
+                    "Unreachable Count": currentCount + 1 
+                  });
+                }
+
+                // Launch WhatsApp click-to-chat
+                const waUrl = generateWhatsAppUrl(unreachableModalOrder.Phone) + "?text=" + encodeURIComponent(formattedMessage);
+                window.open(waUrl, "_blank", "noopener,noreferrer");
+
+                // Dismiss modal
+                setUnreachableModalOrder(null);
+              }}
+              className="p-6 space-y-4 text-right"
+            >
+              {/* Row Details Card */}
+              <div className="bg-[#0b101f] border border-white/5 rounded-xl p-4 space-y-2">
+                <div className="grid grid-cols-2 gap-3 text-xs text-right">
+                  <div className="text-right">
+                    <span className="text-gray-400 block mb-0.5">اسم العميل (الزبون):</span>
+                    <strong className="text-white font-sans">{unreachableModalOrder["Full name"] || "غير متوفر"}</strong>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-gray-400 block mb-0.5">رقم هاتف العميل:</span>
+                    <strong className="text-emerald-400 font-mono tracking-wider">{unreachableModalOrder.Phone || "غير متوفر"}</strong>
+                  </div>
+                  <div className="col-span-2 text-right">
+                    <span className="text-gray-400 block mb-0.5">المنتج المطلوب:</span>
+                    <strong className="text-sky-450 font-sans">{getProductName(unreachableModalOrder["Product name"] || "")}</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Editable Fields */}
+              <div className="space-y-4">
+                <div className="text-right">
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">
+                    اسم المنتج (تلقائي / قابل للتعديل): <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="اسم المنتج المراد إرساله"
+                    value={unreachableProductName}
+                    onChange={(e) => setUnreachableProductName(e.target.value)}
+                    className="w-full bg-[#0d1426] border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white font-sans text-right"
+                  />
+                </div>
+
+                <div className="text-right">
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">
+                    رقم الحوالة / رقم الطرد (أدخله يدوياً إن توفر):
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="يمكنك تركه فارغاً أو كتابته"
+                    value={unreachableParcel}
+                    onChange={(e) => setUnreachableParcel(e.target.value)}
+                    className="w-full bg-[#0d1426] border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white font-mono text-right"
+                  />
+                </div>
+
+                <div className="text-right">
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">
+                    رقم هاتف الموصل / الليفرور (أدخله يدوياً): <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="مثال: +2126XXXXXXXX"
+                    value={unreachableCourier}
+                    onChange={(e) => setUnreachableCourier(e.target.value)}
+                    className="w-full bg-[#0d1426] border border-white/10 rounded-xl px-3 py-2.5 text-sm text-emerald-400 font-mono tracking-wide text-left"
+                    dir="ltr"
+                  />
+                  <p className="text-[10px] text-gray-500 mt-1 text-right">يمكنك تعيين رقم الموصل ليتصل به المشتري لتسليم شحنته.</p>
+                </div>
+              </div>
+
+              {/* Message Live Preview box */}
+              <div className="text-right">
+                <span className="block text-xs font-bold text-gray-400 mb-1.5">معاينة الرسالة المرتقبة:</span>
+                <div className="bg-[#090d19] border border-white/5 rounded-xl p-4 text-[11px] text-gray-300 font-sans leading-relaxed whitespace-pre-line max-h-40 overflow-y-auto text-right" dir="rtl">
+                  {`السلام عليكم ${unreachableModalOrder["Full name"] || "[اسم الزبون]"}،
+
+بخصوص طلبكم: ${unreachableProductName || "[اسم المنتج]"}
+
+رقم الطرد: ${unreachableParcel || "[رقم الطرد]"}
+
+تمت محاولة الاتصال بكم من طرف الموزع لتسليم الطلب، لكن تعذر التواصل معكم لأن الهاتف كان مغلقًا أو كانت هناك مشكلة في الاتصال.
+
+المرجو الاتصال بالموزع على الرقم: ${unreachableCourier || "[رقم هاتف الليفرور]"} لتنسيق عملية التسليم في أقرب وقت.
+
+شكرًا لتعاونكم.`}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
+                <button
+                  type="button"
+                  onClick={() => setUnreachableModalOrder(null)}
+                  className="px-4 py-2 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white rounded-xl text-xs font-bold transition-all min-w-[80px]"
+                >
+                  إلغاء الأمر
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-md shadow-green-950/10"
+                >
+                  <MessageSquare className="w-4 h-4 shrink-0" />
+                  <span>تأكيد الإرسال بالواتساب ⚡</span>
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
       )}
 
     </div>

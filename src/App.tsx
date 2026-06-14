@@ -163,20 +163,23 @@ export default function App() {
     }
   };
 
-  const syncGoogleSheetsInBackground = async () => {
+  const syncGoogleSheetsInBackground = async (force = false) => {
     try {
       const token = sessionStorage.getItem("google_sheets_oauth_token");
-      const pullHeaders: Record<string, string> = {};
+      const pullHeaders: Record<string, string> = {
+        "Content-Type": "application/json"
+      };
       if (token) {
         pullHeaders["Authorization"] = `Bearer ${token}`;
       }
 
       const pullRes = await fetch("/api/google-sheets/sync-pull", {
         method: "POST",
-        headers: pullHeaders
+        headers: pullHeaders,
+        body: JSON.stringify({ force })
       });
       const pullData = await pullRes.json();
-      if (pullData.success) {
+      if (pullData.success && !pullData.skipped) {
         console.log("Silent remote Google Sheets pull completed.");
         // Quietly load the newly synchronized data into state without user-visible loader interruption
         await loadLocalData(false);
@@ -187,12 +190,12 @@ export default function App() {
     }
   };
 
-  const syncDatabase = async () => {
+  const syncDatabase = async (force = false) => {
     // 1. Rapidly charge database arrays from local server-side JSON (extremely fast, ~20ms)
     const localLoaded = await loadLocalData(true);
     if (localLoaded) {
       // 2. Schedule the heavy sheets sync as a non-blocking background task
-      syncGoogleSheetsInBackground();
+      syncGoogleSheetsInBackground(force);
     }
   };
 
@@ -255,7 +258,7 @@ export default function App() {
         showToast(isEdit ? "تم تحديث بيانات الطلب بنجاح" : "تم حفظ الطلب الجديد في ملف المبيعات", "success");
         setEditingSale(null);
         setIsAddSaleOpen(false);
-        await syncDatabase();
+        await loadLocalData(false);
       } else {
         showToast(res.error || "فشل حفظ بيانات الطلبية", "error");
       }
@@ -282,7 +285,7 @@ export default function App() {
         showToast(isEdit ? "تم تحديث بيانات شحنة الشراء" : "تم استيراد شحنة الشراء الجديدة وتسجيلها", "success");
         setEditingPurchase(null);
         setIsAddPurchaseOpen(false);
-        await syncDatabase();
+        await loadLocalData(false);
       } else {
         showToast(res.error || "فشل حفظ البيانات", "error");
       }
@@ -305,7 +308,7 @@ export default function App() {
         showToast("تم تحديث سجل الدفعات لمصلحة المورد بنجاح", "success");
         setEditingPayment(null);
         setIsAddPaymentOpen(false);
-        await syncDatabase();
+        await loadLocalData(false);
       } else {
         showToast(res.error || "فشل رصد وتخزين مستند السداد", "error");
       }
@@ -332,7 +335,7 @@ export default function App() {
         showToast("تم تسجيل وتعديل بنود المصاريف بنجاح", "success");
         setEditingExpense(null);
         setIsAddExpenseOpen(false);
-        await syncDatabase();
+        await loadLocalData(false);
       } else {
         showToast(res.error || "فشل حفظ بند المصروف بالملف", "error");
       }
@@ -356,7 +359,7 @@ export default function App() {
             showToast("تم حذف العنصر بنجاح من الملف السحابي وحساب الفروقات الكلية", "success");
             setEditingSale(null);
             setEditingExpense(null);
-            await syncDatabase();
+            await loadLocalData(false);
           } else {
             showToast(res.error || "فشل حذف العنصر", "error");
           }
@@ -549,7 +552,7 @@ export default function App() {
           </button>
 
           <button 
-            onClick={syncDatabase} 
+            onClick={() => syncDatabase(true)} 
             disabled={isLoading}
             className="p-1 px-3 bg-white/5 rounded-lg text-[11px] hover:bg-white/10 text-gray-300 font-semibold flex items-center gap-1 border border-white/5 transition-colors font-sans cursor-pointer"
           >
@@ -1057,6 +1060,7 @@ export default function App() {
             { key: "Product URL", label: "رابط صفحة السلعة بالمتجر (Product URL)", type: "url" },
             { key: "Variant price", label: "سعر البيع المعتمد بالدرهم", type: "number", required: true },
             { key: "Total quantity", label: "الكمية المطلوبة (Quantity)", type: "number", required: true },
+            { key: "Product variant", label: "المقاس / اللون (Product variant)", type: "text" },
             { key: "Condition", label: "إجراء التثبيت (Condition)", type: "select", options: CONDITIONS.map(c => c.value), required: true },
             { key: "Livreur", label: "موزع الشحن المكلف", type: "select", options: livreurOptions, required: true },
             { key: "delivery", label: "حالة الاستلام (Delivery Case-Sensitive)", type: "select", options: DELIVERY_STATUSES.map(d => d.value) }

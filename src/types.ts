@@ -10,6 +10,7 @@ export interface Order {
   "Product URL": string;
   "Variant price": number;
   "Total quantity": number;
+  "Product variant": string;
   "Total price": number;
   "Condition": string; // Confirmed, Call again, WHATSAPP, Ne repond pas, Anule
   "Livreur": string; // CATHEDIS + dynamic
@@ -21,6 +22,7 @@ export interface Order {
   "Fourni price": number;
   "WhatsApp Sent"?: string;
   "WhatsApp Count"?: number;
+  "Unreachable Count"?: number;
 }
 
 export interface Purchase {

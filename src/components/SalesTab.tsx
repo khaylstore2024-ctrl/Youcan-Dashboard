@@ -476,6 +476,12 @@ export const SalesTab: React.FC<SalesTabProps> = ({
                     {renderSortIcon("Product name")}
                   </div>
                 </th>
+                <th onClick={() => handleSort("Product variant")} className="px-5 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors">
+                  <div className="flex items-center gap-1 justify-start">
+                    <span>المتغير</span>
+                    {renderSortIcon("Product variant")}
+                  </div>
+                </th>
                 <th onClick={() => handleSort("Variant price")} className="px-5 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors font-sans">
                   <div className="flex items-center gap-1 justify-start">
                     <span>السعر</span>
@@ -508,7 +514,7 @@ export const SalesTab: React.FC<SalesTabProps> = ({
             <tbody className="divide-y divide-white/5 text-xs font-sans text-gray-200">
               {currentSales.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-5 py-16 text-center text-gray-500 font-medium">
+                  <td colSpan={12} className="px-5 py-16 text-center text-gray-500 font-medium">
                     لا تتوفر طلبيات مطابقة لمعايير البحث الحالية
                   </td>
                 </tr>
@@ -602,6 +608,11 @@ export const SalesTab: React.FC<SalesTabProps> = ({
                             {sale["Product name"]}
                           </span>
                         </div>
+                      </td>
+
+                      {/* Product Variant */}
+                      <td className="px-5 py-3.5 text-gray-300 font-sans">
+                        {sale["Product variant"] || "-"}
                       </td>
 
                       {/* Variant Price */}

@@ -59,6 +59,7 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
     "Variant price": "" as any,
     "Product URL": "",
     "Total quantity": "" as any,
+    "Product variant": "",
     "Condition": "",
     "delivery": "",
     "Livreur": ""
@@ -140,6 +141,7 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
       "Product URL": newSaleForm["Product URL"],
       "Variant price": parseFloat(newSaleForm["Variant price"]) || 0,
       "Total quantity": parseFloat(newSaleForm["Total quantity"]) || 0,
+      "Product variant": newSaleForm["Product variant"] || "",
       "Total price": newSaleForm.delivery === "Delivered" ? (parseFloat(newSaleForm["Variant price"]) || 0) * (parseFloat(newSaleForm["Total quantity"]) || 0) : 0,
       "Condition": newSaleForm.Condition,
       "Livreur": newSaleForm.Livreur,
@@ -161,6 +163,7 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
       "Variant price": "" as any,
       "Product URL": "",
       "Total quantity": "" as any,
+      "Product variant": "",
       "Condition": "",
       "delivery": "",
       "Livreur": ""
@@ -839,6 +842,29 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
                       value={newSaleForm["Variant price"] === "" || newSaleForm["Variant price"] === undefined ? "" : newSaleForm["Variant price"]}
                       onChange={e => setNewSaleForm({ ...newSaleForm, "Variant price": e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
                       className="w-full bg-[#0d1426] border border-white/10 text-white rounded-lg px-2 py-1 text-xs font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <span className="text-[9px] text-gray-500 block mb-0.5">الكمية المطلوبة</span>
+                    <input
+                      type="number"
+                      min={1}
+                      required
+                      value={newSaleForm["Total quantity"] === "" || newSaleForm["Total quantity"] === undefined ? "" : newSaleForm["Total quantity"]}
+                      onChange={e => setNewSaleForm({ ...newSaleForm, "Total quantity": e.target.value === "" ? "" : parseInt(e.target.value) || 1 })}
+                      className="w-full bg-[#0d1426] border border-white/10 text-white rounded-lg px-2 py-1 text-xs font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <span className="text-[9px] text-gray-500 block mb-0.5">المقاس / اللون (Variant)</span>
+                    <input
+                      type="text"
+                      placeholder="مثال: XL / أحمر"
+                      value={newSaleForm["Product variant"]}
+                      onChange={e => setNewSaleForm({ ...newSaleForm, "Product variant": e.target.value })}
+                      className="w-full bg-[#0d1426] border border-white/10 text-white rounded-lg px-2 py-1 text-xs"
                     />
                   </div>
                 </div>
