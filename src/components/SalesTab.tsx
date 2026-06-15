@@ -12,6 +12,7 @@ interface SalesTabProps {
   onUpdateOrder: (rowNum: number, updates: any) => void;
   salesPreset?: "all" | "delivery_requests" | "delivery_status" | "no_status" | "delivered_parcels";
   setSalesPreset?: (preset: "all" | "delivery_requests" | "delivery_status" | "no_status" | "delivered_parcels") => void;
+  salesResetTrigger?: number;
 }
 
 export const SalesTab: React.FC<SalesTabProps> = ({ 
@@ -21,7 +22,8 @@ export const SalesTab: React.FC<SalesTabProps> = ({
   onEditSale, 
   onUpdateOrder,
   salesPreset = "all",
-  setSalesPreset
+  setSalesPreset,
+  salesResetTrigger = 0
 }) => {
   const distinctCities = React.useMemo(() => {
     return Array.from(new Set(sales.map(s => s.City).filter(Boolean))) as string[];
@@ -54,6 +56,19 @@ export const SalesTab: React.FC<SalesTabProps> = ({
   const [selectedLivreur, setSelectedLivreur] = useState("");
   const [selectedDateRange, setSelectedDateRange] = useState("month"); // Default option is "month" as per requirement Section 9!
   const [isFilterOpen, setIsFilterOpen] = useState(true);
+
+  // Listen to salesResetTrigger to cancel/clear custom filters when preset buttons are clicked
+  React.useEffect(() => {
+    if (salesResetTrigger > 0) {
+      setSearchQuery("");
+      setSelectedCondition("");
+      setSelectedDelivery("");
+      setSelectedCity("");
+      setSelectedLivreur("");
+      setSelectedDateRange("all");
+      setCurrentPage(1);
+    }
+  }, [salesResetTrigger]);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);

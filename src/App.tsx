@@ -80,6 +80,7 @@ export default function App() {
 
   // Quick preset filter for SalesTab
   const [salesPreset, setSalesPreset] = useState<"all" | "delivery_requests" | "delivery_status" | "no_status" | "delivered_parcels">("all");
+  const [salesResetTrigger, setSalesResetTrigger] = useState(0);
 
   // Database State
   const [data, setData] = useState<AppData>({
@@ -662,6 +663,7 @@ export default function App() {
                     onClick={() => {
                       setActiveTab("sales");
                       setSalesPreset("no_status");
+                      setSalesResetTrigger(prev => prev + 1);
                     }}
                     title="بدون تاكيد"
                     className={`w-full flex items-center ${isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-3"} py-2 px-2.5 text-[11px] font-bold font-sans rounded-lg border transition-all ${
@@ -679,6 +681,7 @@ export default function App() {
                     onClick={() => {
                       setActiveTab("sales");
                       setSalesPreset("delivery_requests");
+                      setSalesResetTrigger(prev => prev + 1);
                     }}
                     title="طلبات الشحن"
                     className={`w-full flex items-center ${isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-3"} py-2 px-2.5 text-[11px] font-bold font-sans rounded-lg border transition-all ${
@@ -696,6 +699,7 @@ export default function App() {
                     onClick={() => {
                       setActiveTab("sales");
                       setSalesPreset("delivery_status");
+                      setSalesResetTrigger(prev => prev + 1);
                     }}
                     title="حاله التسليم"
                     className={`w-full flex items-center ${isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-3"} py-2 px-2.5 text-[11px] font-bold font-sans rounded-lg border transition-all ${
@@ -713,6 +717,7 @@ export default function App() {
                     onClick={() => {
                       setActiveTab("sales");
                       setSalesPreset("delivered_parcels");
+                      setSalesResetTrigger(prev => prev + 1);
                     }}
                     title="الطرود المسلمة"
                     className={`w-full flex items-center ${isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-3"} py-2 px-2.5 text-[11px] font-bold font-sans rounded-lg border transition-all ${
@@ -947,6 +952,7 @@ export default function App() {
                   onUpdateOrder={handleInlineStatusUpdate}
                   salesPreset={salesPreset}
                   setSalesPreset={setSalesPreset}
+                  salesResetTrigger={salesResetTrigger}
                 />
               )}
 

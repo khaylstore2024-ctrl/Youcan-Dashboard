@@ -168,19 +168,7 @@ export const NoPurchaseTab: React.FC<NoPurchaseTabProps> = ({ sales, purchases, 
       const delivery = sale.delivery ? sale.delivery.trim() : "";
       const waSent = sale["WhatsApp Sent"] ? sale["WhatsApp Sent"].toString().trim() : "";
 
-      // Hide rows where WhatsApp Sent or delivery is "غير مهتم" or similar variants like "Pas intéresse"
-      const normalizedWASent = waSent.toLowerCase();
-      const normalizedDel = delivery.toLowerCase();
-      if (
-        normalizedWASent === "pas interesse" || 
-        normalizedWASent === "pas intéressé" || 
-        normalizedWASent === "غير مهتم" ||
-        normalizedDel === "pas interesse" || 
-        normalizedDel === "pas intéressé" || 
-        normalizedDel === "غير مهتم"
-      ) {
-        return false;
-      }
+      // "غير مهتم" rows are no longer hidden; they appear even if they are selected as not interested.
 
       const isCancelledCondition = condition.toLowerCase() === "anule" || condition.toLowerCase() === "annulé";
       const isNoResponse = condition.toLowerCase() === "ne repond pas" || condition.toLowerCase() === "ne répond pas" || condition.toLowerCase() === "call again";
@@ -875,8 +863,8 @@ export const NoPurchaseTab: React.FC<NoPurchaseTabProps> = ({ sales, purchases, 
                           }}
                           className="bg-[#0c1325]/90 text-gray-200 border border-white/10 rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-indigo-500 cursor-pointer text-xs font-semibold hover:bg-[#111930] duration-200 w-full min-w-[150px]"
                         >
-                          <option value="مهتم" className="bg-[#0f172a] text-white">مهتم (نشط)</option>
-                          <option value="غير مهتم" className="bg-[#0f172a] text-white">غير مهتم (إخفاء)</option>
+                          <option value="مهتم" className="bg-[#0f172a] text-white">مهتم</option>
+                          <option value="غير مهتم" className="bg-[#0f172a] text-white">غير مهتم</option>
                         </select>
                       </td>
 
