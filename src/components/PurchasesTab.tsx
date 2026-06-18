@@ -13,6 +13,7 @@ interface PurchasesTabProps {
 
 export const PurchasesTab: React.FC<PurchasesTabProps> = ({ purchases, sales, payments, onAddPurchase, onEditPurchase }) => {
   const [activeSubTab, setActiveSubTab] = useState<"purchases" | "suppliers">("purchases");
+  const [viewMode, setViewMode] = useState<"aggregated" | "detailed">("aggregated");
 
   // Filter & Searches
   const [searchQuery, setSearchQuery] = useState("");
@@ -206,6 +207,77 @@ export const PurchasesTab: React.FC<PurchasesTabProps> = ({ purchases, sales, pa
     return items;
   }, [filteredAggregatedPurchases, sortField, sortDirection]);
 
+  const filteredDetailedPurchases = React.useMemo(() => {
+    const rawList = purchases.map(p => {
+      let totalSoldCodeCount = 0;
+      sales.forEach(sale => {
+        if (sale.delivery === "Delivered") {
+          const productRef = (sale["Product name"] || "").toLowerCase();
+          const achatCode = (p.Code || "").toLowerCase();
+          const achatProd = (p.Produit || "").toLowerCase();
+          
+          if (productRef === achatCode || productRef === achatProd) {
+            totalSoldCodeCount += (sale["Total quantity"] || 1);
+          }
+        }
+      });
+      return {
+        ...p,
+        totalQtySold: totalSoldCodeCount
+      };
+    });
+
+    return rawList.filter(p => {
+      const matchesSearch = !searchQuery ? true : (
+        (p.Produit || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.Code || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.Fournisseur || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.ID || "").toLowerCase().includes(searchQuery.toLowerCase())
+      );
+      
+      const matchesSupplier = !selectedSupplierFilter ? true : p.Fournisseur === selectedSupplierFilter;
+      const matchesProduct = !selectedProductFilter ? true : p.Produit === selectedProductFilter;
+      
+      let matchesSalesStock = true;
+      if (selectedSalesStockFilter === "has_sales") {
+        matchesSalesStock = (p.totalQtySold || 0) > 0;
+      } else if (selectedSalesStockFilter === "no_sales") {
+        matchesSalesStock = (p.totalQtySold || 0) === 0;
+      }
+
+      return matchesSearch && matchesSupplier && matchesProduct && matchesSalesStock;
+    });
+  }, [purchases, sales, searchQuery, selectedSupplierFilter, selectedProductFilter, selectedSalesStockFilter]);
+
+  const sortedDetailedPurchases = React.useMemo(() => {
+    const items = [...filteredDetailedPurchases];
+    if (!sortField) return items;
+
+    items.sort((a, b) => {
+      let valA = a[sortField as keyof typeof a];
+      let valB = b[sortField as keyof typeof b];
+
+      if (valA === undefined || valA === null) valA = "";
+      if (valB === undefined || valB === null) valB = "";
+
+      if (sortField === "date") {
+        const dateA = new Date(String(valA).split(" ")[0]).getTime() || 0;
+        const dateB = new Date(String(valB).split(" ")[0]).getTime() || 0;
+        return sortDirection === "asc" ? dateA - dateB : dateB - dateA;
+      }
+
+      if (typeof valA === "number" && typeof valB === "number") {
+        return sortDirection === "asc" ? valA - valB : valB - valA;
+      }
+
+      const strA = String(valA).toLowerCase();
+      const strB = String(valB).toLowerCase();
+      return sortDirection === "asc" ? strA.localeCompare(strB, "ar") : strB.localeCompare(strA, "ar");
+    });
+
+    return items;
+  }, [filteredDetailedPurchases, sortField, sortDirection]);
+
   const sortedSuppliers = React.useMemo(() => {
     const items = [...filteredSuppliers];
     if (!supplierSortField) return items;
@@ -280,11 +352,14 @@ export const PurchasesTab: React.FC<PurchasesTabProps> = ({ purchases, sales, pa
     <div className="space-y-6 text-right animate-fade-in" dir="rtl">
       {/* Switch Sub Tabs */}
       <div className="flex flex-col sm:flex-row gap-4 items-center justify-between border-b border-white/5 pb-2">
-        <div className="flex gap-2 p-1 bg-[#0d1426] rounded-xl self-start select-none border border-white/5">
+        <div className="flex gap-2 p-1 bg-[#0d1426] rounded-xl self-start select-none border border-white/5 flex-wrap">
           <button
-            onClick={() => setActiveSubTab("purchases")}
+            onClick={() => {
+              setActiveSubTab("purchases");
+              setViewMode("aggregated");
+            }}
             className={`px-4 py-1.5 rounded-lg text-xs font-semibold font-sans transition-all flex items-center gap-2 ${
-              activeSubTab === "purchases"
+              activeSubTab === "purchases" && viewMode === "aggregated"
                 ? "bg-blue-600/10 text-blue-400 border border-blue-600/15"
                 : "text-gray-400 border border-transparent hover:text-white"
             }`}
@@ -292,6 +367,22 @@ export const PurchasesTab: React.FC<PurchasesTabProps> = ({ purchases, sales, pa
             <Package className="w-4 h-4" />
             <span>قائمة مشتريات الشحنات</span>
           </button>
+          
+          <button
+            onClick={() => {
+              setActiveSubTab("purchases");
+              setViewMode("detailed");
+            }}
+            className={`px-4 py-1.5 rounded-lg text-xs font-semibold font-sans transition-all flex items-center gap-2 ${
+              activeSubTab === "purchases" && viewMode === "detailed"
+                ? "bg-blue-600/10 text-blue-400 border border-blue-600/15"
+                : "text-gray-400 border border-transparent hover:text-white"
+            }`}
+          >
+            <ShoppingCart className="w-4 h-4" />
+            <span>إظهار جدول المشتريات كاملاً</span>
+          </button>
+
           <button
             onClick={() => setActiveSubTab("suppliers")}
             className={`px-4 py-1.5 rounded-lg text-xs font-semibold font-sans transition-all flex items-center gap-2 ${
@@ -513,137 +604,318 @@ export const PurchasesTab: React.FC<PurchasesTabProps> = ({ purchases, sales, pa
       {activeSubTab === "purchases" ? (
         /* Double Column Purchases Aggregation View */
         <div className="bg-[#111930]/40 border border-white/5 rounded-2xl shadow-xl overflow-hidden glass-effect">
+          {/* View Mode Switching Panel */}
+          <div className="flex flex-col sm:flex-row items-center justify-between p-4 bg-[#0d1426]/75 border-b border-white/5 gap-3">
+            <div className="flex items-center gap-2">
+              <Package className="w-4 h-4 text-blue-400" />
+              <h3 className="text-xs sm:text-sm font-bold text-white font-sans">
+                {viewMode === "aggregated" ? "جدول الشحنات المجمعة حسب الصنف والمورد" : "سجل المشتريات التفصيلي كاملاً"}
+              </h3>
+              <span className="text-[10px] text-gray-400 bg-white/5 px-2.5 py-0.5 rounded-full font-mono font-bold">
+                {viewMode === "aggregated" ? sortedAggregatedPurchases.length : sortedDetailedPurchases.length} شحنة
+              </span>
+            </div>
+            <button
+              onClick={() => setViewMode(viewMode === "aggregated" ? "detailed" : "aggregated")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold font-sans transition-all flex items-center gap-1.5 shrink-0 select-none border ${
+                viewMode === "detailed"
+                  ? "bg-blue-600/20 text-blue-400 border-blue-500/35"
+                  : "bg-white/5 text-gray-400 border-white/5 hover:text-white hover:bg-white/10"
+              }`}
+            >
+              <ShoppingCart className="w-3.5 h-3.5" />
+              <span>
+                {viewMode === "aggregated" ? "إظهار جدول المشتريات كاملاً" : "عرض مجمع حسب السلعة والمورد"}
+              </span>
+            </button>
+          </div>
+
           <div className="overflow-x-auto">
-            <table className="w-full text-right border-collapse">
-              <thead className="bg-[#0d1426] text-gray-400 text-[10px] font-bold uppercase tracking-wider border-b border-white/5 font-mono select-none">
-                <tr>
-                  <th onClick={() => handleSort("Produit")} className="px-6 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors">
-                    <div className="flex items-center gap-1 justify-start">
-                      <span>المنتج</span>
-                      {renderSortIcon("Produit")}
-                    </div>
-                  </th>
-                  <th onClick={() => handleSort("Code")} className="px-6 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors">
-                    <div className="flex items-center gap-1 justify-start">
-                      <span>الرمز</span>
-                      {renderSortIcon("Code")}
-                    </div>
-                  </th>
-                  <th onClick={() => handleSort("Fournisseur")} className="px-6 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors font-sans font-semibold">
-                    <div className="flex items-center gap-1 justify-start">
-                      <span>المورد</span>
-                      {renderSortIcon("Fournisseur")}
-                    </div>
-                  </th>
-                  <th onClick={() => handleSort("nombre")} className="px-6 py-4 text-center cursor-pointer hover:bg-white/[0.05] transition-colors">
-                    <div className="flex items-center gap-1 justify-center">
-                      <span>الكمية</span>
-                      {renderSortIcon("nombre")}
-                    </div>
-                  </th>
-                  <th onClick={() => handleSort("Prix Unit")} className="px-6 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors font-sans">
-                    <div className="flex items-center gap-1 justify-start">
-                      <span>التكلفة</span>
-                      {renderSortIcon("Prix Unit")}
-                    </div>
-                  </th>
-                  <th onClick={() => handleSort("total")} className="px-6 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors">
-                    <div className="flex items-center gap-1 justify-start">
-                      <span>الإجمالي</span>
-                      {renderSortIcon("total")}
-                    </div>
-                  </th>
-                  <th onClick={() => handleSort("Prix de vente")} className="px-6 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors font-sans text-emerald-400">
-                    <div className="flex items-center gap-1 justify-start">
-                      <span>السعر</span>
-                      {renderSortIcon("Prix de vente")}
-                    </div>
-                  </th>
-                  <th onClick={() => handleSort("totalQtySold")} className="px-6 py-4 text-center cursor-pointer hover:bg-white/[0.05] transition-colors">
-                    <div className="flex items-center gap-1 justify-center">
-                      <span>المباع</span>
-                      {renderSortIcon("totalQtySold")}
-                    </div>
-                  </th>
-                  <th className="px-6 py-4 text-center">
-                    <span>خيارات</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5 text-xs text-gray-200">
-                {sortedAggregatedPurchases.length === 0 ? (
+            {viewMode === "aggregated" ? (
+              <table className="w-full text-right border-collapse">
+                <thead className="bg-[#0d1426] text-gray-400 text-[10px] font-bold uppercase tracking-wider border-b border-white/5 font-mono select-none">
                   <tr>
-                    <td colSpan={9} className="px-6 py-16 text-center text-gray-500 font-medium font-sans">
-                      لا تتوفر شحنات شراء مطابقة للبحث
-                    </td>
+                    <th onClick={() => handleSort("Produit")} className="px-6 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors">
+                      <div className="flex items-center gap-1 justify-start">
+                        <span>المنتج</span>
+                        {renderSortIcon("Produit")}
+                      </div>
+                    </th>
+                    <th onClick={() => handleSort("Code")} className="px-6 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors">
+                      <div className="flex items-center gap-1 justify-start">
+                        <span>الرمز</span>
+                        {renderSortIcon("Code")}
+                      </div>
+                    </th>
+                    <th onClick={() => handleSort("Fournisseur")} className="px-6 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors font-sans font-semibold">
+                      <div className="flex items-center gap-1 justify-start">
+                        <span>المورد</span>
+                        {renderSortIcon("Fournisseur")}
+                      </div>
+                    </th>
+                    <th onClick={() => handleSort("nombre")} className="px-6 py-4 text-center cursor-pointer hover:bg-white/[0.05] transition-colors">
+                      <div className="flex items-center gap-1 justify-center">
+                        <span>الكمية</span>
+                        {renderSortIcon("nombre")}
+                      </div>
+                    </th>
+                    <th onClick={() => handleSort("Prix Unit")} className="px-6 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors font-sans">
+                      <div className="flex items-center gap-1 justify-start">
+                        <span>التكلفة</span>
+                        {renderSortIcon("Prix Unit")}
+                      </div>
+                    </th>
+                    <th onClick={() => handleSort("total")} className="px-6 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors">
+                      <div className="flex items-center gap-1 justify-start">
+                        <span>الإجمالي</span>
+                        {renderSortIcon("total")}
+                      </div>
+                    </th>
+                    <th onClick={() => handleSort("Prix de vente")} className="px-6 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors font-sans text-emerald-400">
+                      <div className="flex items-center gap-1 justify-start">
+                        <span>السعر</span>
+                        {renderSortIcon("Prix de vente")}
+                      </div>
+                    </th>
+                    <th onClick={() => handleSort("totalQtySold")} className="px-6 py-4 text-center cursor-pointer hover:bg-white/[0.05] transition-colors">
+                      <div className="flex items-center gap-1 justify-center">
+                        <span>المباع</span>
+                        {renderSortIcon("totalQtySold")}
+                      </div>
+                    </th>
+                    <th className="px-6 py-4 text-center">
+                      <span>خيارات</span>
+                    </th>
                   </tr>
-                ) : (
-                  sortedAggregatedPurchases.map((pur, idx) => (
-                    <tr key={idx} className="hover:bg-white/[0.02] transition-colors">
-                      {/* Product Name */}
-                      <td className="px-6 py-4 font-bold text-white cell-product-name shrink-0 max-w-[180px] truncate">
-                        {pur.Produit}
-                      </td>
-
-                      {/* Code */}
-                      <td className="px-6 py-4 font-mono text-gray-300 select-all font-semibold uppercase">
-                        {pur.Code || "-"}
-                      </td>
-
-                      {/* Supplier */}
-                      <td className="px-6 py-4 text-gray-400 font-sans font-semibold">
-                        {pur.Fournisseur || "مورد مجهول"}
-                      </td>
-
-                      {/* Qty centered */}
-                      <td className="px-6 py-4 text-center font-mono font-bold text-gray-100 cell-qty">
-                        {pur.nombre}
-                      </td>
-
-                      {/* Prix Unit */}
-                      <td className="px-6 py-4 font-mono text-gray-300">
-                        {formatCurrency(pur["Prix Unit"] || 0)}
-                      </td>
-
-                      {/* Total cost (Section 11 Table Row Rules: Cost Total is bold red) */}
-                      <td className="px-6 py-4 font-mono font-bold text-red-400">
-                        {formatCurrency(pur.total || 0)}
-                      </td>
-
-                      {/* Prix de Vente (Section 11 Table Row Rules: Sale price is green bold) */}
-                      <td className="px-6 py-4 font-mono font-bold text-emerald-400">
-                        {formatCurrency(pur["Prix de vente"] || 0)}
-                      </td>
-
-                      {/* Units Sold (Section 11 Table Row Rules: Info blue if > 0, muted if 0) */}
-                      <td className="px-6 py-4 text-center">
-                        {pur.totalQtySold > 0 ? (
-                          <span className="px-2.5 py-1 bg-blue-500/10 text-blue-400 font-bold border border-blue-500/20 rounded-full font-mono text-[11px] inline-flex items-center gap-1">
-                            <TrendingUp className="w-3 h-3" />
-                            {pur.totalQtySold}
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 bg-white/5 text-gray-500 rounded font-mono text-[10px]">
-                            0
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Edit Button */}
-                      <td className="px-6 py-4 text-center">
-                        <button
-                          onClick={() => onEditPurchase(pur)}
-                          className="p-1 px-2.5 bg-[#3b82f6]/10 text-blue-400 hover:bg-[#3b82f6]/20 font-semibold rounded-lg text-[11px] font-sans border border-blue-500/10 transition-colors inline-flex items-center gap-1"
-                        >
-                          <Edit className="w-3 h-3" />
-                          <span>تعديل</span>
-                        </button>
+                </thead>
+                <tbody className="divide-y divide-white/5 text-xs text-gray-200">
+                  {sortedAggregatedPurchases.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="px-6 py-16 text-center text-gray-500 font-medium font-sans">
+                        لا تتوفر شحنات شراء مطابقة للبحث
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    sortedAggregatedPurchases.map((pur, idx) => (
+                      <tr key={idx} className="hover:bg-white/[0.02] transition-colors">
+                        {/* Product Name */}
+                        <td className="px-6 py-4 font-bold text-white cell-product-name shrink-0 max-w-[180px] truncate">
+                          {pur.Produit}
+                        </td>
+
+                        {/* Code */}
+                        <td className="px-6 py-4 font-mono text-gray-300 select-all font-semibold uppercase">
+                          {pur.Code || "-"}
+                        </td>
+
+                        {/* Supplier */}
+                        <td className="px-6 py-4 text-gray-400 font-sans font-semibold">
+                          {pur.Fournisseur || "مورد مجهول"}
+                        </td>
+
+                        {/* Qty centered */}
+                        <td className="px-6 py-4 text-center font-mono font-bold text-gray-100 cell-qty">
+                          {pur.nombre}
+                        </td>
+
+                        {/* Prix Unit */}
+                        <td className="px-6 py-4 font-mono text-gray-300">
+                          {formatCurrency(pur["Prix Unit"] || 0)}
+                        </td>
+
+                        {/* Total cost (Section 11 Table Row Rules: Cost Total is bold red) */}
+                        <td className="px-6 py-4 font-mono font-bold text-red-400">
+                          {formatCurrency(pur.total || 0)}
+                        </td>
+
+                        {/* Prix de Vente (Section 11 Table Row Rules: Sale price is green bold) */}
+                        <td className="px-6 py-4 font-mono font-bold text-emerald-400">
+                          {formatCurrency(pur["Prix de vente"] || 0)}
+                        </td>
+
+                        {/* Units Sold (Section 11 Table Row Rules: Info blue if > 0, muted if 0) */}
+                        <td className="px-6 py-4 text-center">
+                          {pur.totalQtySold > 0 ? (
+                            <span className="px-2.5 py-1 bg-blue-500/10 text-blue-400 font-bold border border-blue-500/20 rounded-full font-mono text-[11px] inline-flex items-center gap-1">
+                              <TrendingUp className="w-3 h-3" />
+                              {pur.totalQtySold}
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-white/5 text-gray-500 rounded font-mono text-[10px]">
+                              0
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Edit Button */}
+                        <td className="px-6 py-4 text-center">
+                          <button
+                            onClick={() => onEditPurchase(pur)}
+                            className="p-1 px-2.5 bg-[#3b82f6]/10 text-blue-400 hover:bg-[#3b82f6]/20 font-semibold rounded-lg text-[11px] font-sans border border-blue-500/10 transition-colors inline-flex items-center gap-1"
+                          >
+                            <Edit className="w-3 h-3" />
+                            <span>تعديل</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            ) : (
+              <table className="w-full text-right border-collapse">
+                <thead className="bg-[#0d1426] text-gray-400 text-[10px] font-bold uppercase tracking-wider border-b border-white/5 font-mono select-none">
+                  <tr>
+                    <th onClick={() => handleSort("ID")} className="px-6 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors">
+                      <div className="flex items-center gap-1 justify-start">
+                        <span>رقم الشحنة</span>
+                        {renderSortIcon("ID")}
+                      </div>
+                    </th>
+                    <th onClick={() => handleSort("date")} className="px-6 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors">
+                      <div className="flex items-center gap-1 justify-start">
+                        <span>التاريخ</span>
+                        {renderSortIcon("date")}
+                      </div>
+                    </th>
+                    <th onClick={() => handleSort("Produit")} className="px-6 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors font-sans">
+                      <div className="flex items-center gap-1 justify-start">
+                        <span>المنتج</span>
+                        {renderSortIcon("Produit")}
+                      </div>
+                    </th>
+                    <th onClick={() => handleSort("Code")} className="px-6 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors font-mono">
+                      <div className="flex items-center gap-1 justify-start">
+                        <span>الرمز</span>
+                        {renderSortIcon("Code")}
+                      </div>
+                    </th>
+                    <th onClick={() => handleSort("Fournisseur")} className="px-6 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors font-sans">
+                      <div className="flex items-center gap-1 justify-start">
+                        <span>المورد</span>
+                        {renderSortIcon("Fournisseur")}
+                      </div>
+                    </th>
+                    <th onClick={() => handleSort("nombre")} className="px-6 py-4 text-center cursor-pointer hover:bg-white/[0.05] transition-colors">
+                      <div className="flex items-center gap-1 justify-center">
+                        <span>الكمية</span>
+                        {renderSortIcon("nombre")}
+                      </div>
+                    </th>
+                    <th onClick={() => handleSort("Prix Unit")} className="px-6 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors">
+                      <div className="flex items-center gap-1 justify-start">
+                        <span>التكلفة</span>
+                        {renderSortIcon("Prix Unit")}
+                      </div>
+                    </th>
+                    <th onClick={() => handleSort("total")} className="px-6 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors">
+                      <div className="flex items-center gap-1 justify-start">
+                        <span>الإجمالي</span>
+                        {renderSortIcon("total")}
+                      </div>
+                    </th>
+                    <th onClick={() => handleSort("Prix de vente")} className="px-6 py-4 cursor-pointer hover:bg-white/[0.05] transition-colors text-emerald-400 font-bold">
+                      <div className="flex items-center gap-1 justify-start">
+                        <span>سعر البيع</span>
+                        {renderSortIcon("Prix de vente")}
+                      </div>
+                    </th>
+                    <th onClick={() => handleSort("totalQtySold")} className="px-6 py-4 text-center cursor-pointer hover:bg-white/[0.05] transition-colors">
+                      <div className="flex items-center gap-1 justify-center">
+                        <span>المباع</span>
+                        {renderSortIcon("totalQtySold")}
+                      </div>
+                    </th>
+                    <th className="px-6 py-4 text-center">
+                      <span>خيارات</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5 text-xs text-gray-200">
+                  {sortedDetailedPurchases.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} className="px-6 py-16 text-center text-gray-500 font-medium font-sans">
+                        لا توجد شحنات شراء مسجلة مطابقة للفلاتر
+                      </td>
+                    </tr>
+                  ) : (
+                    sortedDetailedPurchases.map((pur, idx) => (
+                      <tr key={idx} className="hover:bg-white/[0.02] transition-colors">
+                        {/* Transaction ID */}
+                        <td className="px-6 py-4 font-mono font-bold text-blue-400 select-all">
+                          {pur.ID}
+                        </td>
+
+                        {/* Date */}
+                        <td className="px-6 py-4 font-mono text-gray-300">
+                          {pur.date}
+                        </td>
+
+                        {/* Product Name */}
+                        <td className="px-6 py-4 font-bold text-white max-w-[140px] truncate">
+                          {pur.Produit}
+                        </td>
+
+                        {/* Product Code */}
+                        <td className="px-6 py-4 font-mono text-gray-300 uppercase select-all">
+                          {pur.Code || "-"}
+                        </td>
+
+                        {/* Supplier Name */}
+                        <td className="px-6 py-4 text-gray-400 font-sans font-semibold">
+                          {pur.Fournisseur || "مورد مجهول"}
+                        </td>
+
+                        {/* Qty count */}
+                        <td className="px-6 py-4 text-center font-mono font-bold text-gray-100">
+                          {pur.nombre}
+                        </td>
+
+                        {/* Price Unit */}
+                        <td className="px-6 py-4 font-mono text-gray-300">
+                          {formatCurrency(pur["Prix Unit"] || 0)}
+                        </td>
+
+                        {/* Total Cost in bold red */}
+                        <td className="px-6 py-4 font-mono font-bold text-red-400">
+                          {formatCurrency(pur.total || 0)}
+                        </td>
+
+                        {/* Selling Price in bold green */}
+                        <td className="px-6 py-4 font-mono font-bold text-emerald-400">
+                          {formatCurrency(pur["Prix de vente"] || 0)}
+                        </td>
+
+                        {/* Total quantity sold */}
+                        <td className="px-6 py-4 text-center">
+                          {pur.totalQtySold > 0 ? (
+                            <span className="px-2 py-0.5 bg-blue-500/10 text-blue-400 font-bold border border-blue-500/15 rounded-full font-mono text-[11px] inline-flex items-center gap-1">
+                              <TrendingUp className="w-3 h-3" />
+                              {pur.totalQtySold}
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-white/5 text-gray-500 rounded font-mono text-[10px]">
+                              0
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Options: Edit exactly this raw purchase record! */}
+                        <td className="px-6 py-4 text-center">
+                          <button
+                            onClick={() => onEditPurchase(pur)}
+                            className="p-1 px-2.5 bg-[#3b82f6]/10 text-blue-400 hover:bg-[#3b82f6]/20 font-semibold rounded-lg text-[11px] font-sans border border-blue-500/10 transition-colors inline-flex items-center gap-1"
+                          >
+                            <Edit className="w-3 h-3" />
+                            <span>تعديل</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       ) : (
