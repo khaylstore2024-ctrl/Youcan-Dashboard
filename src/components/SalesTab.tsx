@@ -35,6 +35,10 @@ export const SalesTab: React.FC<SalesTabProps> = ({
   }, [sales]);
   const livreurOptions = distinctLivreurs.length > 0 ? distinctLivreurs : LIVREURS;
 
+  const distinctProducts = React.useMemo(() => {
+    return Array.from(new Set(sales.map(s => s["Product name"]).filter(Boolean))) as string[];
+  }, [sales]);
+
   // Confirm Dialog state
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
@@ -54,6 +58,7 @@ export const SalesTab: React.FC<SalesTabProps> = ({
   const [selectedDelivery, setSelectedDelivery] = useState("");
   const [selectedCity, setSelectedCity] = useState("");
   const [selectedLivreur, setSelectedLivreur] = useState("");
+  const [selectedProduct, setSelectedProduct] = useState("");
   const [selectedDateRange, setSelectedDateRange] = useState("month"); // Default option is "month" as per requirement Section 9!
   const [isFilterOpen, setIsFilterOpen] = useState(true);
 
@@ -65,6 +70,7 @@ export const SalesTab: React.FC<SalesTabProps> = ({
       setSelectedDelivery("");
       setSelectedCity("");
       setSelectedLivreur("");
+      setSelectedProduct("");
       setSelectedDateRange("all");
       setCurrentPage(1);
     }
@@ -72,7 +78,7 @@ export const SalesTab: React.FC<SalesTabProps> = ({
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 6;
+  const itemsPerPage = 10;
 
   // Track copied state for phone number
   const [copiedPhoneRow, setCopiedPhoneRow] = useState<number | null>(null);
@@ -164,9 +170,10 @@ export const SalesTab: React.FC<SalesTabProps> = ({
     );
     const matchesCity = !selectedCity ? true : sale.City === selectedCity;
     const matchesLivreur = !selectedLivreur ? true : sale.Livreur === selectedLivreur;
+    const matchesProduct = !selectedProduct ? true : sale["Product name"] === selectedProduct;
     const matchesDate = isDateInSelectedRange(sale["Order date"], selectedDateRange);
 
-    return matchesSearch && matchesCondition && matchesDelivery && matchesCity && matchesLivreur && matchesDate;
+    return matchesSearch && matchesCondition && matchesDelivery && matchesCity && matchesLivreur && matchesProduct && matchesDate;
   });
 
   // Sorting State
@@ -187,9 +194,17 @@ export const SalesTab: React.FC<SalesTabProps> = ({
 
       // Order date sorting logic (The latest date should be default)
       if (sortField === "Order date") {
-        const dateA = new Date(String(valA).split(" ")[0]).getTime() || 0;
-        const dateB = new Date(String(valB).split(" ")[0]).getTime() || 0;
-        return sortDirection === "asc" ? dateA - dateB : dateB - dateA;
+        const cleanA = String(valA).trim().replace(" ", "T");
+        const cleanB = String(valB).trim().replace(" ", "T");
+        const dateA = new Date(cleanA).getTime() || 0;
+        const dateB = new Date(cleanB).getTime() || 0;
+        if (dateA !== dateB) {
+          return sortDirection === "asc" ? dateA - dateB : dateB - dateA;
+        }
+        // Sub-sort by sheet row index descending (larger row Num means newer inserted row)
+        const rowA = Number(a._rowNum) || 0;
+        const rowB = Number(b._rowNum) || 0;
+        return sortDirection === "asc" ? rowA - rowB : rowB - rowA;
       }
 
       // Numeric sorting (Prix / totals)
@@ -238,6 +253,7 @@ export const SalesTab: React.FC<SalesTabProps> = ({
     setSelectedDelivery("");
     setSelectedCity("");
     setSelectedLivreur("");
+    setSelectedProduct("");
     setSelectedDateRange("all");
     setCurrentPage(1);
   };
@@ -363,7 +379,7 @@ export const SalesTab: React.FC<SalesTabProps> = ({
 
       {/* Advanced Collapsible Filter Panel */}
       {isFilterOpen && (
-        <div className="bg-[#111930]/65 border border-white/5 p-5 rounded-2xl gap-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 items-end glass-effect animate-slide-down">
+        <div className="bg-[#111930]/65 border border-white/5 p-5 rounded-2xl gap-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-7 items-end glass-effect animate-slide-down">
           <div>
             <label className="block text-[11px] text-gray-400 mb-1.5 font-medium">النطاق الزمني</label>
             <div className="relative">
@@ -435,6 +451,20 @@ export const SalesTab: React.FC<SalesTabProps> = ({
               <option value="">الكل</option>
               {livreurOptions.map(l => (
                 <option key={l} value={l}>{l}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] text-gray-400 mb-1.5 font-medium">المنتج (Product)</label>
+            <select
+              value={selectedProduct}
+              onChange={e => { setSelectedProduct(e.target.value); setCurrentPage(1); }}
+              className="w-full bg-[#0d1426] border border-white/10 text-white rounded-xl px-3 py-2 text-xs font-sans"
+            >
+              <option value="">الكل</option>
+              {distinctProducts.map(p => (
+                <option key={p} value={p}>{p}</option>
               ))}
             </select>
           </div>

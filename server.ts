@@ -286,8 +286,37 @@ function readDb() {
       privateKey: "",
       apiKey: ""
     };
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf8");
   }
+
+  // Fallback to environment variables if provided (critical for stateless serverless environments like Vercel)
+  const isEnvSpreadsheetValid = (val: string | undefined): boolean => !!(val && val.trim().length > 10);
+  const isEnvEmailValid = (val: string | undefined): boolean => !!(val && val.trim().includes("@"));
+  const isEnvKeyValid = (val: string | undefined): boolean => !!(val && (val.trim().includes("-----BEGIN") || val.trim().startsWith("{")));
+
+  if (isEnvSpreadsheetValid(process.env.GOOGLE_SPREADSHEET_ID)) {
+    db.googleSheetsSettings.spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID!;
+  } else if (isEnvSpreadsheetValid(process.env.SPREADSHEET_ID)) {
+    db.googleSheetsSettings.spreadsheetId = process.env.SPREADSHEET_ID!;
+  }
+  
+  if (isEnvEmailValid(process.env.GOOGLE_CLIENT_EMAIL)) {
+    db.googleSheetsSettings.clientEmail = process.env.GOOGLE_CLIENT_EMAIL!;
+  } else if (isEnvEmailValid(process.env.CLIENT_EMAIL)) {
+    db.googleSheetsSettings.clientEmail = process.env.CLIENT_EMAIL!;
+  }
+  
+  if (isEnvKeyValid(process.env.GOOGLE_PRIVATE_KEY)) {
+    db.googleSheetsSettings.privateKey = process.env.GOOGLE_PRIVATE_KEY!.replace(/\\n/g, '\r').replace(/\n/g, '\r').replace(/\r/g, '\n');
+  } else if (isEnvKeyValid(process.env.PRIVATE_KEY)) {
+    db.googleSheetsSettings.privateKey = process.env.PRIVATE_KEY!.replace(/\\n/g, '\r').replace(/\n/g, '\r').replace(/\r/g, '\n');
+  }
+  
+  if (process.env.GOOGLE_API_KEY) {
+    db.googleSheetsSettings.apiKey = process.env.GOOGLE_API_KEY;
+  } else if (process.env.API_KEY) {
+    db.googleSheetsSettings.apiKey = process.env.API_KEY;
+  }
+
   return db;
 }
 
@@ -663,45 +692,40 @@ app.post("/api/update-order-row", async (req, res) => {
 // JWT generation for Google Service Account authentication
 async function getGoogleToken(clientEmail: string, privateKey: string): Promise<string> {
   // Robust PEM private key formatter to handle any double-escapes, whitespace, or carriage return issues
-  let cleaned = privateKey;
-  
-  // Auto-heal missing 'W' escape character issue if present
-  if (cleaned.includes("YV22usP2") && !cleaned.includes("WYV22usP2")) {
-    cleaned = cleaned.replace("YV22usP2", "WYV22usP2");
+  let cleaned = privateKey.trim();
+  let email = clientEmail;
+
+  // Remove wrapping quotes if present (often pasted from env variables or strings with quotes)
+  if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
+    cleaned = cleaned.substring(1, cleaned.length - 1).trim();
   }
-  
-  // Replace literal '\n' and '\r' strings with actual newlines
-  cleaned = cleaned.replace(/\\n/g, '\n');
-  cleaned = cleaned.replace(/\\r/g, '\n');
-  cleaned = cleaned.replace(/\r\n/g, '\n');
-  cleaned = cleaned.replace(/\r/g, '\n');
-  
-  // Clean all lines and filter out BEGIN/END header lines
-  const lines = cleaned.split('\n').map(l => l.trim()).filter(Boolean);
-  const base64BodyLines = lines.filter(line => {
-    return !line.includes("-----BEGIN") && !line.includes("-----END");
-  });
-  
-  // Re-join base64 content and strip any spaces/tabs/whitespace
-  const base64Body = base64BodyLines.join("").replace(/\s/g, "");
-  
-  // Split into clean 64-character blocks
-  const formattedBodyLines: string[] = [];
-  for (let i = 0; i < base64Body.length; i += 64) {
-    formattedBodyLines.push(base64Body.substring(i, i + 64));
+  if (cleaned.startsWith("'") && cleaned.endsWith("'")) {
+    cleaned = cleaned.substring(1, cleaned.length - 1).trim();
   }
-  
-  // Re-assemble into absolute perfect PEM format
-  const formattedPrivateKey = [
-    "-----BEGIN PRIVATE KEY-----",
-    ...formattedBodyLines,
-    "-----END PRIVATE KEY-----"
-  ].join("\n");
-  
+
+  // Auto-parse if they pasted the entire Service Account JSON certificate instead of just the private key
+  if (cleaned.startsWith("{") || cleaned.includes('"private_key"')) {
+    try {
+      const parsed = JSON.parse(cleaned);
+      if (parsed.private_key) {
+        cleaned = parsed.private_key.trim();
+      }
+      if (parsed.client_email && (!email || email.trim() === "")) {
+        email = parsed.client_email.trim();
+      }
+    } catch (e) {
+      // Ignore JSON parse failure and continue with raw string
+    }
+  }
+
+  if (!email || email.trim() === "") {
+    throw new Error("⚠️ البريد الإلكتروني لحساب الخدمة (Client Email) غير محدد. يرجى إدخال البريد الإلكتروني في الإعدادات.");
+  }
+
   const header = { alg: "RS256", typ: "JWT" };
   const now = Math.floor(Date.now() / 1000);
   const payload = {
-    iss: clientEmail,
+    iss: email,
     scope: "https://www.googleapis.com/auth/spreadsheets",
     aud: "https://oauth2.googleapis.com/token",
     exp: now + 3600,
@@ -719,18 +743,86 @@ async function getGoogleToken(clientEmail: string, privateKey: string): Promise<
   const jwtHeader = base64UrlEncode(header);
   const jwtPayload = base64UrlEncode(payload);
   const signInput = `${jwtHeader}.${jwtPayload}`;
+
+  // Let's gather candidate private key formatted versions and try them sequentially
+  const keyCandidates: string[] = [];
+
+  // Candidate 1: Try raw key with only basic newline formatting (this is safe and works for 99% of valid keys)
+  let basicCleaned = cleaned
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\n')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+  keyCandidates.push(basicCleaned);
+
+  // Candidate 2: Try with strict PKCS#8 formatting (most common for Google service accounts)
+  // We extract only valid base64 characters from lines that do not represent header/footer
+  const lines = basicCleaned.split('\n').map(l => l.trim()).filter(Boolean);
+  const base64BodyLines = lines.filter(line => !line.includes("-----BEGIN") && !line.includes("-----END"));
+  // Strip absolutely everything except valid base64 characters (handles non-breaking spaces, BOM, or copy-paste stray characters)
+  const base64Body = base64BodyLines.join("").replace(/[^A-Za-z0-9+/=]/g, ""); 
   
+  const body64Chunks: string[] = [];
+  for (let i = 0; i < base64Body.length; i += 64) {
+    body64Chunks.push(base64Body.substring(i, i + 64));
+  }
+  
+  const pkcs8Key = [
+    "-----BEGIN PRIVATE KEY-----",
+    ...body64Chunks,
+    "-----END PRIVATE KEY-----"
+  ].join("\n");
+  keyCandidates.push(pkcs8Key);
+
+  // Candidate 3: Try with alternative PKCS#1 formatting (if they have RSA private key)
+  const pkcs1Key = [
+    "-----BEGIN RSA PRIVATE KEY-----",
+    ...body64Chunks,
+    "-----END RSA PRIVATE KEY-----"
+  ].join("\n");
+  keyCandidates.push(pkcs1Key);
+
+  // Candidate 4: Auto-healing known escape sequence replacement issues (only as fallback)
+  let healed = basicCleaned;
+  if (healed.includes("YV22usP2") && !healed.includes("WYV22usP2")) {
+    healed = healed.replace("YV22usP2", "WYV22usP2");
+    const healedLines = healed.split('\n').map(l => l.trim()).filter(Boolean);
+    const healedBodyLines = healedLines.filter(line => !line.includes("-----BEGIN") && !line.includes("-----END"));
+    const healedBody = healedBodyLines.join("").replace(/[^A-Za-z0-9+/=]/g, "");
+    const healed64Chunks: string[] = [];
+    for (let i = 0; i < healedBody.length; i += 64) {
+      healed64Chunks.push(healedBody.substring(i, i + 64));
+    }
+    const healedPkcs8 = [
+      "-----BEGIN PRIVATE KEY-----",
+      ...healed64Chunks,
+      "-----END PRIVATE KEY-----"
+    ].join("\n");
+    keyCandidates.push(healedPkcs8);
+  }
+
   let signature = "";
-  try {
-    const signer = crypto.createSign("RSA-SHA256");
-    signer.update(signInput);
-    signature = signer.sign(formattedPrivateKey, "base64")
-      .replace(/=/g, "")
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_");
-  } catch (signErr: any) {
-    console.error("Error signing JWT assertion with private key:", signErr);
-    throw new Error(`فشل تشفير التوقيع للمفتاح الخاص (Private Key) لحساب خدمة Google Service Account: ${signErr.message}. يرجى التأكد من صحة نسخ المفتاح بالكامل.`);
+  let lastError: any = null;
+
+  for (let i = 0; i < keyCandidates.length; i++) {
+    try {
+      const signer = crypto.createSign("RSA-SHA256");
+      signer.update(signInput);
+      signature = signer.sign(keyCandidates[i], "base64")
+        .replace(/=/g, "")
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_");
+      // Successfully signed! Break candidate search.
+      lastError = null;
+      break;
+    } catch (err: any) {
+      lastError = err;
+    }
+  }
+
+  if (lastError) {
+    console.error("Error signing JWT assertion with all private key candidates:", lastError);
+    throw new Error(`فشل تشفير التوقيع للمفتاح الخاص (Private Key) لحساب خدمة Google Service Account: ${lastError.message}. يرجى التأكد من صحة نسخ المفتاح بالكامل دون أي تعديل أو نقص.`);
   }
     
   const jwt = `${signInput}.${signature}`;
