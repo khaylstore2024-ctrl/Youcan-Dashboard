@@ -546,7 +546,7 @@ export default function App() {
               className="p-1 px-3 bg-[#00e676]/10 hover:bg-[#00e676]/20 text-[#00e676] rounded-lg text-[11px] font-bold flex items-center gap-1.5 border border-[#00e676]/25 transition-all cursor-pointer font-sans"
             >
               <MessageSquare className="w-3.5 h-3.5" />
-              <span>تعديل الرسائل والمنتجات ⚙️</span>
+              <span>تعديل الرسائل 💬</span>
             </button>
 
             <button 

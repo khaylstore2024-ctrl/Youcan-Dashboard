@@ -389,12 +389,12 @@ export const ProductImageMapperModal: React.FC<ProductImageMapperModalProps> = (
         {/* Modal Header */}
         <div className="px-6 py-4 border-b border-white/5 bg-[#111930] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="p-2.5 bg-indigo-650/20 text-indigo-400 rounded-xl">
-              <FolderSync className="w-5 h-5 text-indigo-400 animate-pulse" />
+            <div className="p-2.5 bg-emerald-600/20 text-emerald-400 rounded-xl">
+              <MessageSquare className="w-5 h-5 text-emerald-400 animate-pulse" />
             </div>
             <div>
-              <h3 className="text-base font-black text-white">لوحة ربط أكواد المنتجات بالصور المحلية</h3>
-              <p className="text-[11px] text-gray-400">تجاهل روابط الجدول الافتراضية، واربط أكواد المنتجات بصور حقيقية مباشرة من مجلد الكمبيوتر لديك</p>
+              <h3 className="text-base font-black text-white">إعدادات رسائل الواتساب والمنتجات ⚙️</h3>
+              <p className="text-[11px] text-gray-400">تعديل وتخصيص قوالب رسائل تأكيد الطلبات، أو ربط أكواد المنتجات بالصور والروابط المخصصة</p>
             </div>
           </div>
           <button
