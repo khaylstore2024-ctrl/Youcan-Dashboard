@@ -1,7 +1,36 @@
 import React, { useState } from "react";
 import { Order, Purchase, Payment, Expense } from "../types";
-import { MOROCCAN_CITIES, CONDITIONS, DELIVERY_STATUSES, LIVREURS, formatCurrency, formatDateDisplay, generateWhatsAppUrl, validatePhone, getCalculatedFields } from "../data";
-import { Home, Users, Package, CreditCard, MoreHorizontal, ShieldCheck, TrendingUp, AlertTriangle, Sprout, ShoppingCart, Info, Search, Plus, Filter, Phone, PhoneCall, MessageCircle, X, ChevronDown, Check, Coins, Calendar, RefreshCcw } from "lucide-react";
+import { MOROCCAN_CITIES, CONDITIONS, DELIVERY_STATUSES, LIVREURS, formatCurrency, formatDateDisplay, generateWhatsAppUrl, validatePhone, getCalculatedFields, KHAYL_WHATSAPP_MESSAGE } from "../data";
+import { Home, Users, Package, CreditCard, MoreHorizontal, ShieldCheck, TrendingUp, AlertTriangle, Sprout, ShoppingCart, Info, Search, Plus, Filter, Phone, PhoneCall, MessageCircle, X, ChevronDown, Check, Coins, Calendar, RefreshCcw, LogOut } from "lucide-react";
+
+// Robust date parser to handle DD/MM/YYYY, YYYY-MM-DD, standard formats, or Date objects
+function parseDateToTime(dateStr: any): number {
+  if (!dateStr) return 0;
+  if (dateStr instanceof Date) return dateStr.getTime();
+  const str = String(dateStr).trim();
+  if (!str) return 0;
+  
+  // Try DD/MM/YYYY or DD-MM-YYYY
+  const dmyMatch = str.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})/);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const month = parseInt(dmyMatch[2], 10) - 1;
+    const year = parseInt(dmyMatch[3], 10);
+    return new Date(year, month, day).getTime();
+  }
+  
+  // Try YYYY-MM-DD or YYYY/MM/DD
+  const ymdMatch = str.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})/);
+  if (ymdMatch) {
+    const year = parseInt(ymdMatch[1], 10);
+    const month = parseInt(ymdMatch[2], 10) - 1;
+    const day = parseInt(ymdMatch[3], 10);
+    return new Date(year, month, day).getTime();
+  }
+  
+  const parsed = Date.parse(str);
+  return isNaN(parsed) ? 0 : parsed;
+}
 
 interface MobileViewProps {
   sales: Order[];
@@ -11,9 +40,27 @@ interface MobileViewProps {
   onAddSale: (newSale: Order) => void;
   onUpdateOrder: (rowNum: number, updates: any) => void;
   onAddExpense: (newExpense: Expense) => void;
+  onSync?: () => void;
+  onLogout?: () => void;
+  isSyncing?: boolean;
+  onAddPurchase?: () => void;
+  onAddPayment?: () => void;
 }
 
-export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, payments, expenses, onAddSale, onUpdateOrder, onAddExpense }) => {
+export const MobileView: React.FC<MobileViewProps> = ({ 
+  sales, 
+  purchases, 
+  payments, 
+  expenses, 
+  onAddSale, 
+  onUpdateOrder, 
+  onAddExpense,
+  onSync,
+  onLogout,
+  isSyncing = false,
+  onAddPurchase,
+  onAddPayment
+}) => {
   const distinctCities = React.useMemo(() => {
     return Array.from(new Set(sales.map(s => s.City).filter(Boolean))) as string[];
   }, [sales]);
@@ -36,8 +83,125 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
   }, [expenses]);
   const finalExpenseTapers = expenseTapersOptions.length > 0 ? expenseTapersOptions : ["إعلانات انستغرام", "إعلانات فيسبوك", "مصاريف شحن", "مصاريف عامة"];
 
+  // Comprehensive Mobile Dashboard Analytics KPIs
+  const mobileReportsStats = React.useMemo(() => {
+    const totalOrders = sales.length;
+
+    // Delivered metrics count & percentage
+    const delivered = sales.filter(s => s.delivery === "Delivered").length;
+    const deliveryRate = totalOrders > 0 ? (delivered / totalOrders) * 100 : 0;
+
+    // Total sales amount overall & delivered
+    const totalSalesAmount = sales.reduce((acc, s) => acc + (s["Total price"] || 0), 0);
+    const totalDeliveredRevenue = sales.reduce((acc, s) => s.delivery === "Delivered" ? acc + (s["Total price"] || 0) : acc, 0);
+
+    // Total profits (sum of 'Bénéfice' column)
+    const totalProfitAll = sales.reduce((acc, s) => acc + (s["Bénéfice"] || 0), 0);
+    const totalProfitDelivered = sales.reduce((acc, s) => s.delivery === "Delivered" ? acc + (s["Bénéfice"] || 0) : acc, 0);
+
+    // Total expenses
+    const totalExpenses = expenses.reduce((acc, ex) => acc + (ex.Prix || 0), 0);
+
+    // Net Project profit (Delivered benefit - Total Expenses)
+    const netProfitVal = totalProfitDelivered - totalExpenses;
+
+    // Cost per Sale (Total Expenses / Delivered count)
+    const costPerSale = delivered > 0 ? totalExpenses / delivered : 0;
+
+    // Cost of purchases
+    const totalPurchasesCost = purchases.reduce((acc, p) => acc + (p.total || 0), 0);
+
+    // Payments to suppliers
+    const totalPaymentsToSuppliers = payments.reduce((acc, pay) => acc + (pay.Payment || 0), 0);
+
+    // Remaining outstanding supplier dept
+    const remainingSupplierBalance = totalPurchasesCost - totalPaymentsToSuppliers;
+
+    // Aggregated suppliers list: cost of purchases, payments made, and remaining balance
+    const suppliersMap: { [name: string]: { name: string; totalPurchases: number; totalPayments: number; balance: number } } = {};
+    purchases.forEach(p => {
+      const s = p.Fournisseur || "غير محدد";
+      if (!suppliersMap[s]) {
+        suppliersMap[s] = { name: s, totalPurchases: 0, totalPayments: 0, balance: 0 };
+      }
+      suppliersMap[s].totalPurchases += (p.total || 0);
+    });
+
+    payments.forEach(pay => {
+      const s = pay.Fournisseur || "غير محدد";
+      if (!suppliersMap[s]) {
+        suppliersMap[s] = { name: s, totalPurchases: 0, totalPayments: 0, balance: 0 };
+      }
+      suppliersMap[s].totalPayments += (pay.Payment || 0);
+    });
+
+    const suppliersList = Object.values(suppliersMap).map(s => ({
+      ...s,
+      balance: s.totalPurchases - s.totalPayments
+    })).sort((a, b) => b.totalPurchases - a.totalPurchases);
+
+    // Top 5 Moroccan Cities
+    const cityCount: { [city: string]: number } = {};
+    sales.forEach(s => {
+      const city = s.City ? s.City.trim() : "";
+      if (city) {
+        cityCount[city] = (cityCount[city] || 0) + 1;
+      }
+    });
+    const topCities = Object.entries(cityCount)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([city, count]) => ({
+        city,
+        count,
+        percentage: totalOrders > 0 ? (count / totalOrders) * 100 : 0
+      }));
+
+    // Top Selling Product
+    const prodCount: { [prod: string]: { name: string; qtyRequested: number; qtySold: number } } = {};
+    sales.forEach(s => {
+      const prod = s["Product name"] ? s["Product name"].trim() : "";
+      if (prod) {
+        if (!prodCount[prod]) {
+          prodCount[prod] = { name: prod, qtyRequested: 0, qtySold: 0 };
+        }
+        const qty = s["Total quantity"] || 1;
+        prodCount[prod].qtyRequested += qty;
+        if (s.delivery === "Delivered") {
+          prodCount[prod].qtySold += qty;
+        }
+      }
+    });
+    const sortedProds = Object.values(prodCount).sort((a, b) => b.qtyRequested - a.qtyRequested);
+    const topProduct = sortedProds.length > 0 ? sortedProds[0] : null;
+
+    return {
+      totalOrders,
+      delivered,
+      deliveryRate,
+      totalSalesAmount,
+      totalDeliveredRevenue,
+      totalProfitAll,
+      totalProfitDelivered,
+      totalExpenses,
+      netProfit: netProfitVal,
+      costPerSale,
+      totalPurchasesCost,
+      totalPaymentsToSuppliers,
+      remainingSupplierBalance,
+      suppliersList,
+      topCities,
+      topProduct,
+      allProductsList: sortedProds
+    };
+  }, [sales, purchases, payments, expenses]);
+
   const [activePage, setActivePage] = useState<"home" | "sales" | "purchases" | "payments" | "more">("home");
   const [moreSubTab, setMoreSubTab] = useState<"reports" | "expenses" | "settings">("reports");
+  const [isSuppliersReportExpanded, setIsSuppliersReportExpanded] = useState(false);
+  const [isTopCitiesExpanded, setIsTopCitiesExpanded] = useState(false);
+  const [isAllProductsReportExpanded, setIsAllProductsReportExpanded] = useState(false);
+  const [isSalesOrdersReportExpanded, setIsSalesOrdersReportExpanded] = useState(false);
 
   // Search & Filter state
   const [salesSearch, setSalesSearch] = useState("");
@@ -86,9 +250,7 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
 
   // Recent 10 Orders List
   const recentOrders = [...sales].sort((a,b) => {
-    const dA = a["Order date"] || "";
-    const dB = b["Order date"] || "";
-    return dB.localeCompare(dA);
+    return parseDateToTime(b["Order date"]) - parseDateToTime(a["Order date"]);
   }).slice(0, 10);
 
   // Compute stats including 3 new delivery statuses
@@ -231,18 +393,14 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
     const matchesDeliv = !selectedDelivery ? true : s.delivery === selectedDelivery;
 
     return matchesSearch && matchesCond && matchesDeliv;
+  }).sort((a, b) => {
+    return parseDateToTime(b["Order date"]) - parseDateToTime(a["Order date"]);
   });
 
   return (
-    <div className="mx-auto my-4 w-full max-w-[410px] h-[780px] bg-[#070a13] border-[6px] border-slate-800 rounded-[44px] shadow-2xl relative overflow-hidden flex flex-col font-sans select-none" dir="rtl">
-      {/* Device Top Speaker Notch / Indicator */}
-      <div className="absolute top-2 left-1/2 -translate-x-1/2 w-32 h-5 bg-slate-800 rounded-full z-50 flex items-center justify-around px-4">
-        <span className="w-1.5 h-1.5 bg-camera-indigo rounded-full block bg-cyan-500"></span>
-        <span className="w-12 h-1 bg-slate-700/80 rounded-full block"></span>
-      </div>
-
+    <div className="w-full max-w-md mx-auto min-h-screen bg-[#070a13] relative flex flex-col font-sans" dir="rtl">
       {/* Screen container */}
-      <div className="flex-1 overflow-hidden flex flex-col pt-8 pb-14 h-full">
+      <div className="flex-grow flex flex-col pt-4 pb-20">
         
         {/* VIEW 1: HOME PAGE */}
         {activePage === "home" && (
@@ -409,8 +567,10 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
           <div className="flex-1 overflow-y-auto p-4 space-y-4 h-full" id="pagePurchases">
             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">السلع والوارد شحن</h3>
             
-            <div className="space-y-3">
-              {purchases.map((p, idx) => (
+            <div className="space-y-3 pb-20">
+              {[...purchases]
+                .sort((a, b) => parseDateToTime(b.date) - parseDateToTime(a.date))
+                .map((p, idx) => (
                 <div key={idx} className="p-3 bg-[#111930]/40 border border-white/5 rounded-xl">
                   <div className="flex justify-between items-start mb-2">
                     <div>
@@ -444,8 +604,10 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
         {activePage === "payments" && (
           <div className="flex-1 overflow-y-auto p-4 h-full" id="pagePayments">
             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">حوالات وجدول الدفعات المسددة</h3>
-            <div className="space-y-3">
-              {payments.map((pay, idx) => (
+            <div className="space-y-3 pb-20">
+              {[...payments]
+                .sort((a, b) => parseDateToTime(b.date) - parseDateToTime(a.date))
+                .map((pay, idx) => (
                 <div key={idx} className="p-3 bg-[#111930]/40 border border-white/5 rounded-xl flex justify-between items-center">
                   <div>
                     <span className="text-xs font-bold text-white block font-mono">{pay.ID}</span>
@@ -498,34 +660,305 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
               {/* SUB A: MOBILE REPORTS */}
               {moreSubTab === "reports" && (
                 <div className="space-y-4 animate-fade-in text-right">
-                  <div className="p-4 bg-white/5 border border-white/5 rounded-xl space-y-2">
-                    <h4 className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">الملخص المالي الرقمي</h4>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-gray-300">أرباح المبيعات المستلمة:</span>
-                      <span className="font-mono text-emerald-400 font-bold">{formatCurrency(totalDeliveredProfit)}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-gray-300">أعباء وتكاليف المشروع:</span>
-                      <span className="font-mono text-rose-400 font-bold">{formatCurrency(totalExpensesSum)}</span>
-                    </div>
-                    <div className="border-t border-white/5 pt-2 flex justify-between items-center text-xs">
-                      <span className="text-white font-bold">صافي الربح الفعلي:</span>
-                      <span className={`font-mono text-sm font-bold ${netProfit >= 0 ? "text-blue-400" : "text-rose-400"}`}>{formatCurrency(netProfit)}</span>
+                  
+                  {/* SECTION 1: SALES & DELIVERY PERFORMANCE */}
+                  <div className="p-4 bg-[#111930]/60 border border-white/5 rounded-2xl space-y-3">
+                    <button
+                      onClick={() => setIsSalesOrdersReportExpanded(!isSalesOrdersReportExpanded)}
+                      className="w-full text-right flex justify-between items-center pb-1 border-b border-white/5 cursor-pointer outline-none group"
+                    >
+                      <h4 className="text-[11px] font-bold text-indigo-400 uppercase tracking-wider group-hover:text-indigo-300 transition-colors flex items-center gap-1.5">
+                        <span>تقرير المبيعات والطلبات (الأداء)</span>
+                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping inline-block"></span>
+                      </h4>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] text-gray-400 font-normal">اضغط للتفاصيل</span>
+                        <ChevronDown 
+                          className={`w-3.5 h-3.5 text-indigo-400 transition-transform duration-300 ${
+                            isSalesOrdersReportExpanded ? "rotate-180" : ""
+                          }`} 
+                        />
+                      </div>
+                    </button>
+
+                    {isSalesOrdersReportExpanded && (
+                      <div className="space-y-3 animate-fade-in">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="p-2.5 bg-white/5 rounded-xl text-center">
+                            <span className="text-[10px] text-gray-400 block mb-0.5">إجمالي الطلبات</span>
+                            <span className="font-mono text-lg font-black text-white">{mobileReportsStats.totalOrders}</span>
+                            <span className="text-[9px] text-gray-400 block">طلب مسجل</span>
+                          </div>
+                          
+                          <div className="p-2.5 bg-white/5 rounded-xl text-center">
+                            <span className="text-[10px] text-gray-400 block mb-0.5">نسبة التوصيل</span>
+                            <span className="font-mono text-lg font-black text-indigo-400">
+                              {mobileReportsStats.deliveryRate.toFixed(1)}%
+                            </span>
+                            <span className="text-[9px] text-gray-500 block">
+                              مسلّم: <span className="text-emerald-400 font-bold">{mobileReportsStats.delivered}</span>
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2 pt-1">
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="text-gray-400">مجموع قيم مبيعات الملف:</span>
+                            <span className="font-mono text-white font-bold">{formatCurrency(mobileReportsStats.totalSalesAmount)}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="text-gray-400">قيمة المبيعات المستلمة فـعلياً:</span>
+                            <span className="font-mono text-amber-400 font-semibold">{formatCurrency(mobileReportsStats.totalDeliveredRevenue)}</span>
+                          </div>
+                        </div>
+
+                        {/* Progress Slider */}
+                        <div className="w-full bg-white/5 h-1 rounded-full overflow-hidden">
+                          <div 
+                            className="bg-indigo-500 h-full rounded-full transition-all duration-700" 
+                            style={{ width: `${Math.min(mobileReportsStats.deliveryRate, 100)}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* SECTION 2: FINANCIAL KPI & PROFITABILITY */}
+                  <div className="p-4 bg-[#111930]/60 border border-white/5 rounded-2xl space-y-3">
+                    <h4 className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider pb-1 border-b border-white/5 flex justify-between items-center">
+                      <span>المؤشرات المالية والأرباح العامة</span>
+                      <span className="text-[9px] font-normal text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">مباشر</span>
+                    </h4>
+
+                    <div className="space-y-2.5">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-gray-400">مجموع أرباح الملف (Bénéfice):</span>
+                        <span className="font-mono text-rose-300 font-bold">{formatCurrency(mobileReportsStats.totalProfitAll)}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-gray-400">أرباح المبيعات المستلمة:</span>
+                        <span className="font-mono text-emerald-400 font-bold">{formatCurrency(mobileReportsStats.totalProfitDelivered)}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-gray-400">إجمالي المصاريف التشغيلية:</span>
+                        <span className="font-mono text-rose-400 font-bold">{formatCurrency(mobileReportsStats.totalExpenses)}</span>
+                      </div>
+
+                      <div className="flex justify-between items-center text-xs pt-1 border-t border-white/5">
+                        <span className="text-gray-400">تكلفة المبيعة الواحدة:</span>
+                        <span className="font-mono text-cyan-400 font-bold">{formatCurrency(mobileReportsStats.costPerSale)}</span>
+                      </div>
+
+                      {/* NET ACTUAL PROFIT HERO BOX */}
+                      <div className="mt-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl flex justify-between items-center">
+                        <div>
+                          <span className="text-[10px] text-blue-300 block font-semibold">صافي الأرباح العام للمشروع</span>
+                          <span className="text-[9px] text-gray-500">(أرباح التوصيل مخصوم منها المصاريف)</span>
+                        </div>
+                        <span className={`font-mono text-base font-black ${mobileReportsStats.netProfit >= 0 ? "text-blue-400" : "text-rose-400"}`}>
+                          {formatCurrency(mobileReportsStats.netProfit)}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Top 5 Products inline code lists */}
-                  <div className="space-y-2">
-                    <span className="text-[11px] font-bold text-gray-400 block">أعلى مدن مغربية طلباً</span>
-                    <div className="space-y-1">
-                      {MOROCCAN_CITIES.slice(0, 4).map((c, i) => (
-                        <div key={i} className="flex justify-between items-center p-2 bg-[#111930]/40 rounded-lg text-xs font-mono">
-                          <span className="text-gray-300 font-sans">{c}</span>
-                          <span className="text-gray-500 font-bold">نشاط ممتاز</span>
+                  {/* SECTION 3: SUPPLY CHAIN & SUPPLIER LEDGER */}
+                  <div className="p-4 bg-[#111930]/60 border border-white/5 rounded-2xl space-y-3">
+                    <button
+                      onClick={() => setIsSuppliersReportExpanded(!isSuppliersReportExpanded)}
+                      className="w-full text-right flex justify-between items-center pb-1 border-b border-white/5 cursor-pointer outline-none group"
+                    >
+                      <h4 className="text-[11px] font-bold text-amber-400 uppercase tracking-wider group-hover:text-amber-300 transition-colors">
+                        حسابات الموردين والمشتريات
+                      </h4>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] text-gray-500 font-normal">اضغط للتفاصيل</span>
+                        <ChevronDown 
+                          className={`w-3.5 h-3.5 text-amber-400 transition-transform duration-300 ${
+                            isSuppliersReportExpanded ? "rotate-180" : ""
+                          }`} 
+                        />
+                      </div>
+                    </button>
+
+                    <div className="space-y-2.5">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-gray-400">تكلفة المشتريات (إجمالي الفواتير):</span>
+                        <span className="font-mono text-amber-100 font-bold">{formatCurrency(mobileReportsStats.totalPurchasesCost)}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-gray-400">إجمالي المدفوعات للموردين:</span>
+                        <span className="font-mono text-emerald-400 font-semibold">{formatCurrency(mobileReportsStats.totalPaymentsToSuppliers)}</span>
+                      </div>
+                      
+                      <div className="border-t border-white/5 pt-2 flex justify-between items-center text-xs pb-1">
+                        <span className="text-white font-bold">باقي الرصيد بذمة الموردين:</span>
+                        <span className={`font-mono text-sm font-black ${mobileReportsStats.remainingSupplierBalance > 0 ? "text-rose-400" : "text-gray-300"}`}>
+                          {formatCurrency(mobileReportsStats.remainingSupplierBalance)}
+                        </span>
+                      </div>
+
+                      {/* Expandable supplier itemized ledger */}
+                      {isSuppliersReportExpanded && (
+                        <div className="pt-2.5 border-t border-white/5 space-y-2 animate-fade-in">
+                          <div className="text-[10px] font-bold text-indigo-400 mb-1 flex justify-between items-center">
+                            <span>تفصيل حسابات كل مورّد:</span>
+                            <span className="text-[9px] text-gray-500">مجموع: {mobileReportsStats.suppliersList.length}</span>
+                          </div>
+                          
+                          {mobileReportsStats.suppliersList.length === 0 ? (
+                            <div className="text-center text-xs text-gray-500 py-2">لا توجد تفاصيل موردين حالياً</div>
+                          ) : (
+                            mobileReportsStats.suppliersList.map((sup, sIdx) => (
+                              <div key={sIdx} className="p-2.5 bg-black/20 rounded-xl space-y-1.5 border border-white/[0.02]">
+                                <div className="flex justify-between items-center text-xs">
+                                  <span className="text-indigo-300 font-bold">{sup.name}</span>
+                                  <span className={`font-mono font-bold text-[11px] ${sup.balance > 0 ? "text-rose-400" : "text-emerald-400"}`}>
+                                    {sup.balance > 0 ? `باقي: ${formatCurrency(sup.balance)}` : "مسدد بالكامل"}
+                                  </span>
+                                </div>
+                                
+                                <div className="grid grid-cols-2 gap-2 text-[10px]">
+                                  <div className="flex justify-between bg-white/[0.02] p-1.5 rounded">
+                                    <span className="text-gray-400">تكلفة المشتريات:</span>
+                                    <span className="font-mono text-white">{formatCurrency(sup.totalPurchases)}</span>
+                                  </div>
+                                  <div className="flex justify-between bg-white/[0.02] p-1.5 rounded">
+                                    <span className="text-gray-400">المدفوعات:</span>
+                                    <span className="font-mono text-emerald-400">{formatCurrency(sup.totalPayments)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            ))
+                          )}
                         </div>
-                      ))}
+                      )}
                     </div>
                   </div>
+
+                  {/* SECTION 4: TOP WINNERS & GEO DEMOGRAPHICS */}
+                  <div className="grid grid-cols-1 gap-4">
+                    {/* TOP PRODUCT CARD */}
+                    {mobileReportsStats.topProduct && (
+                      <div className="p-4 bg-[#111930]/60 border border-white/5 rounded-2xl space-y-3">
+                        <h4 className="text-[11px] font-bold text-cyan-400 uppercase tracking-wider pb-1 border-b border-white/5 flex items-center justify-between">
+                          <span>المنتوج الأكثر طلباً</span>
+                          <span className="text-[10px] bg-cyan-400/10 text-cyan-400 px-2 py-0.5 rounded font-mono">المرتبة #1</span>
+                        </h4>
+                        <div className="flex flex-col gap-2">
+                          <span className="text-white font-bold text-sm tracking-tight">{mobileReportsStats.topProduct.name}</span>
+                          
+                          <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+                            <div className="bg-white/5 p-2 rounded-xl flex flex-col justify-center items-center">
+                              <span className="text-[10px] text-gray-400">الوحدات المطلوبة</span>
+                              <span className="font-mono text-cyan-400 font-black text-sm mt-0.5">
+                                {mobileReportsStats.topProduct.qtyRequested}
+                              </span>
+                            </div>
+                            <div className="bg-white/5 p-2 rounded-xl flex flex-col justify-center items-center">
+                              <span className="text-[10px] text-gray-400">الوحدات المباعة</span>
+                              <span className="font-mono text-emerald-400 font-black text-sm mt-0.5">
+                                {mobileReportsStats.topProduct.qtySold}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <div className="p-4 bg-[#111930]/60 border border-white/5 rounded-2xl space-y-2.5">
+                      <button
+                        onClick={() => setIsTopCitiesExpanded(!isTopCitiesExpanded)}
+                        className="w-full text-right flex justify-between items-center pb-1 border-b border-white/5 cursor-pointer outline-none group"
+                      >
+                        <h4 className="text-[11px] font-bold text-purple-400 uppercase tracking-wider group-hover:text-purple-300 transition-colors">
+                          المدن الـ 5 الأكثر طلباً في المغرب
+                        </h4>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] text-gray-500 font-normal font-sans">اضغط للتفاصيل</span>
+                          <ChevronDown 
+                            className={`w-3.5 h-3.5 text-purple-400 transition-transform duration-300 ${
+                              isTopCitiesExpanded ? "rotate-180" : ""
+                            }`} 
+                          />
+                        </div>
+                      </button>
+                      
+                      {isTopCitiesExpanded && (
+                        <div className="space-y-2 pt-1 animate-fade-in">
+                          {mobileReportsStats.topCities.length === 0 ? (
+                            <div className="text-center text-xs text-gray-500 py-2">لا توجد بيانات كافية حالياً</div>
+                          ) : (
+                            mobileReportsStats.topCities.map((item, idx) => (
+                              <div key={idx} className="space-y-1">
+                                <div className="flex justify-between items-center text-xs font-mono">
+                                  <span className="text-gray-200 font-bold font-sans">
+                                    {idx + 1}. {item.city}
+                                  </span>
+                                  <span className="text-gray-400 text-[11px]">
+                                    {item.count} طلب ({item.percentage.toFixed(1)}%)
+                                  </span>
+                                </div>
+                                <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
+                                  <div 
+                                    className="bg-purple-500 h-full rounded-full transition-all duration-700"
+                                    style={{ width: `${item.percentage}%` }}
+                                  ></div>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ALL PRODUCTS TOTALS REPORT */}
+                    <div className="p-4 bg-[#111930]/60 border border-white/5 rounded-2xl space-y-2.5">
+                      <button
+                        onClick={() => setIsAllProductsReportExpanded(!isAllProductsReportExpanded)}
+                        className="w-full text-right flex justify-between items-center pb-1 border-b border-white/5 cursor-pointer outline-none group"
+                      >
+                        <h4 className="text-[11px] font-bold text-cyan-400 uppercase tracking-wider group-hover:text-cyan-300 transition-colors">
+                          تقرير مبيعات وطلبات كافة المنتجات
+                        </h4>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] text-gray-500 font-normal font-sans">مجموع: {mobileReportsStats.allProductsList.length}</span>
+                          <ChevronDown 
+                            className={`w-3.5 h-3.5 text-cyan-400 transition-transform duration-300 ${
+                              isAllProductsReportExpanded ? "rotate-180" : ""
+                            }`} 
+                          />
+                        </div>
+                      </button>
+                      
+                      {isAllProductsReportExpanded && (
+                        <div className="space-y-2.5 pt-1 animate-fade-in">
+                          {mobileReportsStats.allProductsList.length === 0 ? (
+                            <div className="text-center text-xs text-gray-500 py-2">لا توجد بيانات منتوجات حالياً</div>
+                          ) : (
+                            mobileReportsStats.allProductsList.map((prod, idx) => (
+                              <div key={idx} className="p-2.5 bg-white/[0.02] border border-white/[0.04] rounded-xl space-y-2 transition-all hover:bg-white/[0.04]">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-white font-bold text-xs tracking-tight">{prod.name}</span>
+                                  <span className="text-[9px] text-gray-500 bg-white/5 px-1.5 py-0.5 rounded font-mono">#{idx + 1}</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                                  <div className="flex justify-between bg-black/20 p-2 rounded-lg">
+                                    <span className="text-gray-400 font-sans">العدد المطلوب:</span>
+                                    <span className="font-bold text-cyan-400">{prod.qtyRequested}</span>
+                                  </div>
+                                  <div className="flex justify-between bg-black/20 p-2 rounded-lg">
+                                    <span className="text-gray-400 font-sans">العدد المبيوع:</span>
+                                    <span className="font-bold text-emerald-400">{prod.qtySold}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                 </div>
               )}
 
@@ -544,7 +977,9 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
                   </div>
 
                   <div className="space-y-3">
-                    {expenses.map((exp, idx) => (
+                    {[...expenses]
+                      .sort((a, b) => parseDateToTime(b.date) - parseDateToTime(a.date))
+                      .map((exp, idx) => (
                       <div key={idx} className="p-3 bg-[#111930]/40 border border-white/5 rounded-xl flex justify-between items-center text-right font-sans">
                         <div>
                           <span className="text-xs font-bold text-white block">{exp.Taper}</span>
@@ -563,12 +998,36 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
               {/* SUB C: MOBILE SETTINGS */}
               {moreSubTab === "settings" && (
                 <div className="space-y-4 animate-fade-in text-right">
-                  <div className="p-4 bg-white/5 border border-white/5 rounded-xl space-y-2 text-xs">
+                  <div className="p-4 bg-white/5 border border-white/5 rounded-xl space-y-3 text-xs">
                     <span className="text-gray-300 block font-bold">لوحة تحكم الهاتف Youcan UI</span>
                     <p className="text-[11px] text-gray-500 leading-relaxed font-sans">
                       نسخة الهاتف محسنة ومعدة خصيصاً لموظفي التوصيل والشاحنين في الميدان لتعديل حالات الشحنات فورا بطرق سريعة.
                     </p>
-                    <div className="pt-2 border-t border-white/5 leading-relaxed text-[10px] text-gray-400 font-mono">
+                    
+                    <div className="pt-3 border-t border-white/5 flex flex-col gap-2">
+                      {onSync && (
+                        <button
+                          onClick={onSync}
+                          disabled={isSyncing}
+                          className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
+                        >
+                          <RefreshCcw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin" : ""}`} />
+                          <span>{isSyncing ? "مزامنة البيانات..." : "مزامنة البيانات فوراً"}</span>
+                        </button>
+                      )}
+
+                      {onLogout && (
+                        <button
+                          onClick={onLogout}
+                          className="w-full py-2.5 px-4 bg-rose-600/20 hover:bg-rose-600/30 text-rose-400 font-bold rounded-lg border border-rose-500/10 transition-colors flex items-center justify-center gap-2"
+                        >
+                          <LogOut className="w-3.5 h-3.5" />
+                          <span>تسجيل الخروج من الحساب</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="pt-3 border-t border-white/5 leading-relaxed text-[10px] text-gray-400 font-mono">
                       <div>إصدار السيرفر: v2.1.1</div>
                       <div>بوابة الربط: 1sRl7IlEBVzu...</div>
                     </div>
@@ -582,8 +1041,29 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
 
       </div>
 
+      {/* Absolute Blue Floating Action Buttons relative to container */}
+      {activePage === "purchases" && onAddPurchase && (
+        <button
+          onClick={onAddPurchase}
+          className="absolute bottom-20 left-4 w-12 h-12 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-full shadow-lg flex items-center justify-center transition-all z-40 active:scale-95 border border-blue-500/20 cursor-pointer"
+          aria-label="Add Purchase"
+        >
+          <Plus className="w-6 h-6" />
+        </button>
+      )}
+
+      {activePage === "payments" && onAddPayment && (
+        <button
+          onClick={onAddPayment}
+          className="absolute bottom-20 left-4 w-12 h-12 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-full shadow-lg flex items-center justify-center transition-all z-40 active:scale-95 border border-blue-500/20 cursor-pointer"
+          aria-label="Add Payment"
+        >
+          <Plus className="w-6 h-6" />
+        </button>
+      )}
+
       {/* --- FLOATING BOTTOM MENU NAV FOR DEVICES (env safe bounds) --- */}
-      <div className="absolute bottom-0 left-0 right-0 h-16 bg-[#0a1020]/95 border-t border-white/5 flex items-center justify-around px-4 z-40 select-none pb-safe-bottom" style={{ boxSizing: "border-box" }}>
+      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md h-16 bg-[#0a1020]/95 border-t border-white/5 flex items-center justify-around px-4 z-45 select-none pb-safe-bottom" style={{ boxSizing: "border-box" }}>
         <button
           onClick={() => setActivePage("home")}
           className={`flex flex-col items-center justify-center p-1.5 transition-all outline-none ${
@@ -637,7 +1117,7 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
 
       {/* --- ADD EXPENSE BOTTOM SHEET DIALOG --- */}
       {isAddExpenseOpen && (
-        <div className="absolute inset-0 bg-black/80 backdrop-blur-sm z-50 flex flex-col justify-end">
+        <div className="fixed inset-y-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-black/80 backdrop-blur-sm z-50 flex flex-col justify-end">
           <div className="bg-[#111930] border-t border-white/10 rounded-t-3xl p-6 text-right animate-slide-up max-h-[75%]" dir="rtl">
             <div className="flex justify-between items-center mb-4 pb-2 border-b border-white/5">
               <span className="text-white font-bold text-sm">تسجيل مصروفات الهاتف</span>
@@ -687,7 +1167,7 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
 
       {/* --- FILTER SLIDE UP SHEET DRAWER FOR SALES --- */}
       {isFilterSheetOpen && (
-        <div className="absolute inset-0 bg-black/80 backdrop-blur-sm z-50 flex flex-col justify-end">
+        <div className="fixed inset-y-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-black/80 backdrop-blur-sm z-50 flex flex-col justify-end">
           <div className="bg-[#111930] border-t border-white/10 rounded-t-[32px] p-6 text-right animate-slide-up" dir="rtl">
             <div className="flex justify-between items-center mb-4 pb-2 border-b border-white/5">
               <span className="text-white font-bold text-xs flex items-center gap-1">
@@ -753,7 +1233,7 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
 
       {/* --- ADD SALE BOTTOM SHEET DIALOG --- */}
       {isAddSaleOpen && (
-        <div className="absolute inset-0 bg-black/85 backdrop-blur-sm z-50 flex flex-col justify-end">
+        <div className="fixed inset-y-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-black/85 backdrop-blur-sm z-50 flex flex-col justify-end">
           <div className="bg-[#111930] rounded-t-[32px] border-t border-white/10 p-5 text-right flex flex-col max-h-[85%] overflow-hidden" dir="rtl">
             <div className="flex justify-between items-center mb-3 pb-2 border-b border-white/5 shrink-0">
               <span className="text-white font-bold text-xs flex items-center gap-1">
@@ -929,7 +1409,7 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
 
       {/* --- CELL PHONE ORDER DETAIL AUTO SAVE SHEET --- */}
       {selectedOrderDetail && (
-        <div className="absolute inset-0 bg-black/90 backdrop-blur-sm z-50 flex flex-col justify-end">
+        <div className="fixed inset-y-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-black/90 backdrop-blur-sm z-50 flex flex-col justify-end">
           <div className="bg-[#111930] rounded-t-[32px] border-t border-white/10 p-5 text-right flex flex-col max-h-[85%] overflow-hidden" dir="rtl">
             <div className="flex justify-between items-center mb-3 shrink-0 pb-2 border-b border-white/5">
               <span className="text-white font-bold text-xs flex items-center gap-1.5">
@@ -971,7 +1451,7 @@ export const MobileView: React.FC<MobileViewProps> = ({ sales, purchases, paymen
                   اتصال مباشر
                 </a>
                 <a
-                  href={generateWhatsAppUrl(selectedOrderDetail.Phone || "")}
+                  href={`${generateWhatsAppUrl(selectedOrderDetail.Phone || "")}?text=${encodeURIComponent(KHAYL_WHATSAPP_MESSAGE)}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors"

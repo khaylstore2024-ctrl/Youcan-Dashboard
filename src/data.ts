@@ -65,6 +65,11 @@ export function validatePhone(phone: string): boolean {
 }
 
 // Generate WhatsApp Url
+export const KHAYL_WHATSAPP_MESSAGE = `السلام عليكم 🌹
+نشكركم على اختيار *KHAYL STORE* 🐎
+المرجو تأكيد الطلب بالرد بكلمة *"تأكيد"* أو *"موافق"* حتى نقوم بتجهيز وإرسال الطلب.
+في انتظار تأكيدكم، وشكراً على ثقتكم بنا. 🤝`;
+
 export function generateWhatsAppUrl(phone: string): string {
   const clean = phone.trim().replace(/\s+/g, "");
   if (clean.startsWith("0")) {

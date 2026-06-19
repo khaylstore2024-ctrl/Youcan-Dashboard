@@ -759,13 +759,16 @@ export const GenericModal: React.FC<GenericModalProps> = ({ onClose, onSave, tit
   const [customFields, setCustomFields] = useState<Record<string, boolean>>({});
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
 
+  const fieldsKey = JSON.stringify(fields);
+  const initialValuesKey = JSON.stringify(initialValues);
+
   useEffect(() => {
     const defaultVals: any = {};
     fields.forEach(f => {
       defaultVals[f.key] = initialValues[f.key] !== undefined ? initialValues[f.key] : "";
     });
     setValues(defaultVals);
-  }, [fields, initialValues]);
+  }, [fieldsKey, initialValuesKey]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
