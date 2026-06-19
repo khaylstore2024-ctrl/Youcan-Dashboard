@@ -70,6 +70,17 @@ export const KHAYL_WHATSAPP_MESSAGE = `السلام عليكم 🌹
 المرجو تأكيد الطلب بالرد بكلمة *"تأكيد"* أو *"موافق"* حتى نقوم بتجهيز وإرسال الطلب.
 في انتظار تأكيدكم، وشكراً على ثقتكم بنا. 🤝`;
 
+export function getKHAYLWhatsAppMessage(): string {
+  try {
+    const stored = localStorage.getItem("khayl_confirmation_message_template");
+    if (stored) return stored;
+  } catch {}
+  return `السلام عليكم
+نشكركم على اختيار KHAYL STORE
+المرجو تأكيد الطلب بالرد بكلمة "تأكيد" أو "موافق" حتى نقوم بتجهيز وإرسال الطلب.
+في انتظار تأكيدكم، وشكراً على ثقتكم بنا.`;
+}
+
 export function generateWhatsAppUrl(phone: string): string {
   const clean = phone.trim().replace(/\s+/g, "");
   if (clean.startsWith("0")) {

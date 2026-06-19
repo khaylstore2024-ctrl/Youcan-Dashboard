@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Order, Purchase } from "../types";
-import { MOROCCAN_CITIES, CONDITIONS, DELIVERY_STATUSES, LIVREURS, formatCurrency, formatDateDisplay, generateWhatsAppUrl, KHAYL_WHATSAPP_MESSAGE } from "../data";
+import { MOROCCAN_CITIES, CONDITIONS, DELIVERY_STATUSES, LIVREURS, formatCurrency, formatDateDisplay, generateWhatsAppUrl, getKHAYLWhatsAppMessage } from "../data";
 import { Search, Filter, Plus, Calendar, RotateCcw, Edit, Phone, MessageCircle, ExternalLink, ChevronRight, ChevronLeft, ArrowUpDown, ArrowUp, ArrowDown, Copy } from "lucide-react";
 import { ConfirmationDialog } from "./ConfirmationDialog";
 
@@ -765,7 +765,7 @@ export const SalesTab: React.FC<SalesTabProps> = ({
                           {/* WhatsApp Chat */}
                           {sale.Phone && (
                             <a
-                              href={`${generateWhatsAppUrl(sale.Phone || "")}?text=${encodeURIComponent(KHAYL_WHATSAPP_MESSAGE)}`}
+                              href={`${generateWhatsAppUrl(sale.Phone || "")}?text=${encodeURIComponent(getKHAYLWhatsAppMessage())}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               title="محادثة واتساب سريعة"

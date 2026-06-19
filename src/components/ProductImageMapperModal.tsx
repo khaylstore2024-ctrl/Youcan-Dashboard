@@ -64,6 +64,23 @@ export const ProductImageMapperModal: React.FC<ProductImageMapperModalProps> = (
   });
 
   const [tempTemplate, setTempTemplate] = useState(template);
+  
+  // WhatsApp Daily Confirmation Message state
+  const [confirmationTemplate, setConfirmationTemplate] = useState(() => {
+    const defaultConfMessage = `السلام عليكم 🌹
+نشكركم على اختيار **KHAYL STORE** 🐎
+المرجو تأكيد الطلب بالرد بكلمة **"تأكيد"** أو **"موافق"** حتى نقوم بتجهيز وإرسال الطلب.
+في انتظار تأكيدكم، وشكراً على ثقتكم بنا. 🤝`;
+    try {
+      const stored = localStorage.getItem("khayl_confirmation_message_template");
+      return stored || defaultConfMessage;
+    } catch {
+      return defaultConfMessage;
+    }
+  });
+
+  const [tempConfirmationTemplate, setTempConfirmationTemplate] = useState(confirmationTemplate);
+  const [templateType, setTemplateType] = useState<"confirmation" | "retargeting">("confirmation");
   const [isTemplateSaved, setIsTemplateSaved] = useState(false);
 
   // Active Tab inside modal: "single", "batch", or "template"
@@ -435,70 +452,138 @@ export const ProductImageMapperModal: React.FC<ProductImageMapperModalProps> = (
                 <div className="space-y-4">
                   <div className="flex gap-2 items-center">
                     <MessageSquare className="w-5 h-5 text-emerald-400" />
-                    <h4 className="text-sm font-black text-white">تعديل قالب رسالة إعادة الاستهداف</h4>
+                    <h4 className="text-sm font-black text-white">إعدادات وقوالب رسائل الواتساب</h4>
                   </div>
-                  
-                  <p className="text-xs text-slate-400 leading-relaxed font-medium">
-                    اكتب القالب المناسب لرسالة الواتساب بالأسفل. سيتم استبدال الكلمات المحصورة بين أقواس تلقائياً ببيانات العميل الحالية لتخصيص كل رسالة لكل عميل عند الضغط على زر الإرسال.
-                  </p>
 
-                  <div className="space-y-2">
-                    <label className="block text-xs font-bold text-slate-300">نص وهيكل رسالـة الواتساب:</label>
-                    <textarea
-                      value={tempTemplate}
-                      onChange={(e) => {
-                        setTempTemplate(e.target.value);
+                  {/* Selector for message type */}
+                  <div className="grid grid-cols-2 gap-2 bg-[#070b14] p-1 rounded-xl border border-white/5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTemplateType("confirmation");
                         setIsTemplateSaved(false);
                       }}
-                      className="w-full bg-[#070b14] border border-white/10 rounded-xl p-4 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 min-h-[160px] font-sans leading-relaxed resize-none text-right"
-                      placeholder="السلام عليكم {name}..."
-                    />
+                      className={`py-2 text-center text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                        templateType === "confirmation" ? "bg-emerald-600/20 text-emerald-400 border border-emerald-500/10" : "text-gray-400 hover:text-white"
+                      }`}
+                    >
+                      تأكيد الطلب اليومي (المبيعات)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTemplateType("retargeting");
+                        setIsTemplateSaved(false);
+                      }}
+                      className={`py-2 text-center text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                        templateType === "retargeting" ? "bg-emerald-600/20 text-emerald-400 border border-emerald-500/10" : "text-gray-400 hover:text-white"
+                      }`}
+                    >
+                      إعادة الاستهداف (غير المشترين)
+                    </button>
                   </div>
+                  
+                  {templateType === "confirmation" ? (
+                    <>
+                      <p className="text-xs text-slate-400 leading-relaxed font-medium">
+                        هذه الرسالة تُرسَل تلقائياً عند النقر على زر الواتساب الأخضر بكشف المبيعات والطلبيات اليومية لتأكيد الطلب مع الزبون.
+                      </p>
 
-                  {/* Dynamic Helpers Tag Insertion Buttons */}
-                  <div className="space-y-2">
-                    <span className="text-[10px] font-bold text-gray-400 block">انقر لإضافة المتغيّرات للمكان الحالي بالكتابة:</span>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={() => {
-                          setTempTemplate(prev => prev + " {name}");
-                          setIsTemplateSaved(false);
-                        }}
-                        className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 border border-white/5 rounded-lg text-[10px] font-mono text-emerald-400 hover:text-emerald-300 transition-colors"
-                        title="تلقيم اسم العميل تلقائياً"
-                      >
-                        {"{name}"} (اسم العميل)
-                      </button>
-                      <button
-                        onClick={() => {
-                          setTempTemplate(prev => prev + " {product}");
-                          setIsTemplateSaved(false);
-                        }}
-                        className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 border border-white/5 rounded-lg text-[10px] font-mono text-emerald-400 hover:text-emerald-300 transition-colors"
-                        title="تلقيم اسم المنتج المستورد تلقائياً"
-                      >
-                        {"{product}"} (اسم المنتج)
-                      </button>
-                      <button
-                        onClick={() => {
-                          setTempTemplate(prev => prev + " {url}");
-                          setIsTemplateSaved(false);
-                        }}
-                        className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 border border-white/5 rounded-lg text-[10px] font-mono text-emerald-400 hover:text-emerald-300 transition-colors"
-                        title="تلقيم رابط صفحة المنتج تلقائياً"
-                      >
-                        {"{url}"} (رابط المنتج المخصص)
-                      </button>
-                    </div>
-                  </div>
+                      <div className="space-y-2">
+                        <label className="block text-xs font-bold text-slate-300">نص وهيكل رسالـة تأكيد الطلبيات:</label>
+                        <textarea
+                          value={tempConfirmationTemplate}
+                          onChange={(e) => {
+                            setTempConfirmationTemplate(e.target.value);
+                            setIsTemplateSaved(false);
+                          }}
+                          className="w-full bg-[#070b14] border border-white/10 rounded-xl p-4 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 min-h-[160px] font-sans leading-relaxed resize-none text-right"
+                          placeholder="السلام عليكم..."
+                        />
+                      </div>
+
+                      {/* Dynamic Helpers Tag Insertion Buttons */}
+                      <div className="space-y-2">
+                        <span className="text-[10px] font-bold text-gray-400 block">انقر لإضافة المتغيّرات للمكان الحالي بالكتابة:</span>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => {
+                              setTempConfirmationTemplate(prev => prev + " {name}");
+                              setIsTemplateSaved(false);
+                            }}
+                            className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 border border-white/5 rounded-lg text-[10px] font-mono text-emerald-400 hover:text-emerald-300 transition-colors"
+                            title="تلقيم اسم العميل تلقائياً"
+                          >
+                            {"{name}"} (اسم العميل)
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-xs text-slate-400 leading-relaxed font-medium">
+                        هذه الرسالة تُستخدَم في لوحة المتابعة لإعادة استهداف واسترجاع العملاء المغادرين أو الذين تعثر معهم التوصيل.
+                      </p>
+
+                      <div className="space-y-2">
+                        <label className="block text-xs font-bold text-slate-300">نص وهيكل رسالـة إعادة الاستهداف:</label>
+                        <textarea
+                          value={tempTemplate}
+                          onChange={(e) => {
+                            setTempTemplate(e.target.value);
+                            setIsTemplateSaved(false);
+                          }}
+                          className="w-full bg-[#070b14] border border-white/10 rounded-xl p-4 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 min-h-[160px] font-sans leading-relaxed resize-none text-right"
+                          placeholder="السلام عليكم {name}..."
+                        />
+                      </div>
+
+                      {/* Dynamic Helpers Tag Insertion Buttons */}
+                      <div className="space-y-2">
+                        <span className="text-[10px] font-bold text-gray-400 block">انقر لإضافة المتغيّرات للمكان الحالي بالكتابة:</span>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => {
+                              setTempTemplate(prev => prev + " {name}");
+                              setIsTemplateSaved(false);
+                            }}
+                            className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 border border-white/5 rounded-lg text-[10px] font-mono text-emerald-400 hover:text-emerald-300 transition-colors"
+                            title="تلقيم اسم العميل تلقائياً"
+                          >
+                            {"{name}"} (اسم العميل)
+                          </button>
+                          <button
+                            onClick={() => {
+                              setTempTemplate(prev => prev + " {product}");
+                              setIsTemplateSaved(false);
+                            }}
+                            className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 border border-white/5 rounded-lg text-[10px] font-mono text-emerald-400 hover:text-emerald-300 transition-colors"
+                            title="تلقيم اسم المنتج المستورد تلقائياً"
+                          >
+                            {"{product}"} (اسم المنتج)
+                          </button>
+                          <button
+                            onClick={() => {
+                              setTempTemplate(prev => prev + " {url}");
+                              setIsTemplateSaved(false);
+                            }}
+                            className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 border border-white/5 rounded-lg text-[10px] font-mono text-emerald-400 hover:text-emerald-300 transition-colors"
+                            title="تلقيم رابط صفحة المنتج تلقائياً"
+                          >
+                            {"{url}"} (رابط المنتج المخصص)
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
 
                   {/* Explanatory Info Card */}
                   <div className="bg-emerald-950/20 border border-emerald-500/10 p-4 rounded-xl">
                     <div className="flex gap-2.5 items-start text-[11px] text-emerald-300 leading-relaxed font-medium">
                       <AlertCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                       <div>
-                        <strong className="text-white block mb-0.5 text-xs">ملاحظة تقنية مهمة:</strong>
-                        تم توجيه النظام لاستخدام <span className="text-white font-bold underline">اسم المنتج المستورد بالكامل</span> بدلاً من رمز المنتج، مما يزيد من جاذبية الرسالة ويجعلها مهنية وواضحة للعملاء بهاتفك.
+                        <strong className="text-white block mb-0.5 text-xs">ملاحظة مهمة:</strong>
+                        يتم حفظ القوالب تلقائياً بالمتصفح، وعند فتح زر واتساب لأي طلب سيتم إنشاء الرابط بالنص المخصص الموضح بالمعاينة فوراً.
                       </div>
                     </div>
                   </div>
@@ -508,15 +593,22 @@ export const ProductImageMapperModal: React.FC<ProductImageMapperModalProps> = (
                   <span className="text-[10px] text-gray-500 font-sans">تم دمج هذه اللوحة بالكامل لتبسيط عملياتك اليومية.</span>
                   <button
                     onClick={() => {
-                      setTemplate(tempTemplate);
-                      try {
-                        localStorage.setItem("khayl_watrans_template", tempTemplate);
-                      } catch {}
+                      if (templateType === "confirmation") {
+                        setConfirmationTemplate(tempConfirmationTemplate);
+                        try {
+                          localStorage.setItem("khayl_confirmation_message_template", tempConfirmationTemplate);
+                        } catch {}
+                      } else {
+                        setTemplate(tempTemplate);
+                        try {
+                          localStorage.setItem("khayl_watrans_template", tempTemplate);
+                        } catch {}
+                      }
                       setIsTemplateSaved(true);
                       if (onSaved) onSaved();
                       setTimeout(() => setIsTemplateSaved(false), 2000);
                     }}
-                    className={`px-5 py-2 rounded-xl text-xs font-bold transition-all shadow-md ${
+                    className={`px-5 py-2 rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer ${
                       isTemplateSaved 
                         ? "bg-emerald-700 text-white shadow-emerald-900/10" 
                         : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/20"
@@ -532,7 +624,12 @@ export const ProductImageMapperModal: React.FC<ProductImageMapperModalProps> = (
                 <div className="space-y-4">
                   <div className="flex items-center gap-1.5">
                     <Sparkles className="w-4 h-4 text-emerald-400 animate-pulse" />
-                    <span className="text-xs font-bold text-gray-300">محاكاة الرسالة قبل الإرسال (مثال حقيقي):</span>
+                    <span className="text-xs font-bold text-gray-300 flex items-center gap-1">
+                      <span>محاكاة الرسالة قبل الإرسال</span>
+                      <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded font-normal">
+                        {templateType === "confirmation" ? "طلب مؤكد" : "إعادة استهداف"}
+                      </span>
+                    </span>
                   </div>
 
                   {/* Mobile phone/chat visual display element */}
@@ -559,33 +656,41 @@ export const ProductImageMapperModal: React.FC<ProductImageMapperModalProps> = (
                       <div className="space-y-1 max-w-[85%] mr-auto text-right">
                         <div className="bg-[#056162] text-white p-3 rounded-2xl rounded-tr-none text-xs leading-relaxed break-words whitespace-pre-wrap">
                           {(() => {
-                            const demoCustomer = sales[0] || { "Customer Name": "أحمد عبد الله", "Product name": "K001" };
-                            const name = demoCustomer["Customer Name"] || "أحمد عبد الله";
-                            const pCode = demoCustomer["Product name"] || "K001";
-                            const pKey = pCode.trim().toLowerCase();
-                            const pName = getProductName(pCode);
-                            const productUrl = mediaConfigs[pKey]?.url || "";
+                            if (templateType === "confirmation") {
+                              const demoCustomer = sales[0] || { "Customer Name": "أحمد عبد الله" };
+                              const name = demoCustomer["Customer Name"] || "أحمد عبد الله";
+                              let replaced = tempConfirmationTemplate.replace(/{name}/g, name);
+                              return replaced;
+                            } else {
+                              const demoCustomer = sales[0] || { "Customer Name": "أحمد عبد الله", "Product name": "K001" };
+                              const name = demoCustomer["Customer Name"] || "أحمد عبد الله";
+                              const pCode = demoCustomer["Product name"] || "K001";
+                              const pKey = pCode.trim().toLowerCase();
+                              const pName = getProductName(pCode);
+                              const productUrl = mediaConfigs[pKey]?.url || "";
 
-                            // Replaced text simulation
-                            let replaced = tempTemplate
-                              .replace(/{name}/g, name)
-                              .replace(/{product}/g, pName)
-                              .replace(/{url}/g, productUrl || `https://khaylstore.com/p/${pCode}`);
-                            return replaced;
+                              // Replaced text simulation
+                              let replaced = tempTemplate
+                                .replace(/{name}/g, name)
+                                .replace(/{product}/g, pName)
+                                .replace(/{url}/g, productUrl || `https://khaylstore.com/p/${pCode}`);
+                              return replaced;
+                            }
                           })()}
                         </div>
-                        <span className="block text-[8px] text-slate-500 text-left pl-1 font-mono">14:32</span>
+                        <span className="block text-[8px] text-slate-500 text-left pl-1 font-mono font-sans">14:32</span>
                       </div>
                     </div>
                   </div>
                 </div>
 
                 <div className="bg-white/5 border border-white/5 p-3 rounded-xl text-[10px] text-gray-400 font-medium leading-relaxed mt-4">
-                  تساعدك هذه المعاينة على موازنة الأسطر والتأكد من وضوح رابط معاينة المنتج للعميل قبل استهدافه الفعلي.
+                  تساعدك هذه المعاينة على موازنة الأسطر والتأكد من وضوح رسالتك قبل فتح شات الواتساب مع العميل.
                 </div>
               </div>
             </div>
           )}
+
 
           {/* ================ TAB 1: SINGLE MANUAL VIEW ================ */}
           {activeTab === "single" && (

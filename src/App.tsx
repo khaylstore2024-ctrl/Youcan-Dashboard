@@ -51,7 +51,8 @@ import {
   FileQuestion,
   PackageCheck,
   UserX,
-  LogOut
+  LogOut,
+  MessageSquare
 } from "lucide-react";
 
 export default function App() {
@@ -542,10 +543,10 @@ export default function App() {
             {/* Real-time local computer folder image product linking tool */}
             <button 
               onClick={() => setIsProductMapperOpen(true)}
-              className="p-1 px-3 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 rounded-lg text-[11px] font-bold flex items-center gap-1.5 border border-indigo-500/20 transition-all cursor-pointer"
+              className="p-1 px-3 bg-[#00e676]/10 hover:bg-[#00e676]/20 text-[#00e676] rounded-lg text-[11px] font-bold flex items-center gap-1.5 border border-[#00e676]/25 transition-all cursor-pointer font-sans"
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
-              <span>ربط وتعيين صور المنتجات 📷</span>
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>تعديل الرسائل والمنتجات ⚙️</span>
             </button>
 
             <button 

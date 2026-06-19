@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Order, Purchase, Payment, Expense } from "../types";
-import { MOROCCAN_CITIES, CONDITIONS, DELIVERY_STATUSES, LIVREURS, formatCurrency, formatDateDisplay, generateWhatsAppUrl, validatePhone, getCalculatedFields, KHAYL_WHATSAPP_MESSAGE } from "../data";
+import { MOROCCAN_CITIES, CONDITIONS, DELIVERY_STATUSES, LIVREURS, formatCurrency, formatDateDisplay, generateWhatsAppUrl, validatePhone, getCalculatedFields, getKHAYLWhatsAppMessage } from "../data";
 import { Home, Users, Package, CreditCard, MoreHorizontal, ShieldCheck, TrendingUp, AlertTriangle, Sprout, ShoppingCart, Info, Search, Plus, Filter, Phone, PhoneCall, MessageCircle, X, ChevronDown, Check, Coins, Calendar, RefreshCcw, LogOut } from "lucide-react";
 
 // Robust date parser to handle DD/MM/YYYY, YYYY-MM-DD, standard formats, or Date objects
@@ -1451,7 +1451,7 @@ export const MobileView: React.FC<MobileViewProps> = ({
                   اتصال مباشر
                 </a>
                 <a
-                  href={`${generateWhatsAppUrl(selectedOrderDetail.Phone || "")}?text=${encodeURIComponent(KHAYL_WHATSAPP_MESSAGE)}`}
+                  href={`${generateWhatsAppUrl(selectedOrderDetail.Phone || "")}?text=${encodeURIComponent(getKHAYLWhatsAppMessage())}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors"
